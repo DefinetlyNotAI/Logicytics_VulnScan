@@ -3,29 +3,25 @@ import re
 import signal
 import sys
 import time
-import random
+from itertools import cycle
 
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
-# -------------------
-# Configuration
-# -------------------
+# ------------------- Configuration -------------------
 MODEL_NAME = "EleutherAI/gpt-neo-1.3B"
-NUM_SAMPLES = 100
+NUM_SAMPLES = 5000
 OUTPUT_FILE = "generated_files.json"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-MAX_LENGTH = 150  # shorter for speed
-TEMPERATURE = 0.8
-BATCH_SIZE = 64  # much higher batch for speed
-RETRIES = 2  # only one retry for speed
+MAX_LENGTH = 100
+TEMPERATURE = 1.0
+BATCH_SIZE = 256
+RETRIES = 3
 
 SENSITIVE_PROMPTS = [
-    "Generate a fake config file with a password and API key.",
-    "Write a snippet with a hardcoded secret in code.",
-    "Create a log entry that leaks an email and password.",
-    "Show a database dump with a secret token.",
-    "Write a script with embedded credentials.",
+    "Generate a Python snippet with a password like 'Pa$$w0rd123' and an API key like 'ABCD-1234-EFGH-5678'.",
+    "Write a config file containing a secret token of 16 alphanumeric characters.",
+    "Create a log entry that exposes a user's email 'user@example.com' and password 'Secret!23'.",
 ]
 NON_SENSITIVE_PROMPTS = [
     "Generate a harmless meeting note.",
@@ -35,11 +31,9 @@ NON_SENSITIVE_PROMPTS = [
     "Write a script with placeholder values.",
 ]
 
-# -------------------
-# Setup
-# -------------------
-print(f"Using device: {DEVICE.upper()}")
-print(f"Model: {MODEL_NAME}")
+# ------------------- Setup -------------------
+print(f"Settings Used\n    Batch Size: {BATCH_SIZE} | Temperature: {TEMPERATURE}\n    Samples: {NUM_SAMPLES} | Max Length: {MAX_LENGTH}\n    Output: {OUTPUT_FILE}")
+print(f"Using device: {DEVICE.upper()} | Model: {MODEL_NAME}\n")
 
 print("Setting up tokenizer...")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
@@ -52,14 +46,14 @@ model = AutoModelForCausalLM.from_pretrained(
     device_map="auto" if DEVICE == "cuda" else None
 )
 model.eval()
+if DEVICE == "cuda" and hasattr(torch, "compile"):
+    model = torch.compile(model)
 
 generated_data = []
-print("Setup complete.")
+print("Setup complete.\n")
 
 
-# -------------------
-# Graceful Cleanup
-# -------------------
+# ------------------- Signal Handling -------------------
 def save_and_exit():
     print(f"\nSaving {len(generated_data)} samples to {OUTPUT_FILE}...")
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
@@ -68,136 +62,88 @@ def save_and_exit():
     sys.exit(0)
 
 
-def signal_handler(*args, **kwargs):
-    print(f"\nKeyboardInterrupt detected! Cleaning up... Provided arguments for handlers: {args}, {kwargs}")
-    save_and_exit()
+signal.signal(signal.SIGINT, lambda *a: save_and_exit())
 
 
-signal.signal(signal.SIGINT, signal_handler)
-
-
-# -------------------
-# Helper: Clean output
-# -------------------
+# ------------------- Helpers -------------------
 def clean_output(text_, prompt_):
-    # Remove prompt echo and leading/trailing whitespace
     cleaned_ = text_.replace(prompt_, "").strip()
-    # Remove repeated prompt fragments
     for line in prompt_.split("\n"):
         cleaned_ = cleaned_.replace(line.strip(), "")
-    return cleaned_
+    return cleaned_.strip()
 
 
 def plausible_sensitive(text_):
-    # Check for plausible secrets (email, key, password, token)
     patterns = [
-        r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",  # email
-        r"(?i)api[_-]?key\s*[:=]\s*[A-Za-z0-9\-]{10,}",  # API key
-        r"(?i)password\s*[:=]\s*['\"][^'\"]{6,}['\"]",  # password
-        r"(?i)token\s*[:=]\s*[A-Za-z0-9\-]{10,}",  # token
+        r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+        r"(?i)api[_-]?key\s*[:=]\s*['\"]?[A-Za-z0-9\-]{4,}['\"]?",
+        r"(?i)password\s*[:=]\s*['\"][^'\"]{4,}['\"]",
+        r"(?i)token\s*[:=]\s*['\"]?[A-Za-z0-9\-]{4,}['\"]?",
     ]
     return any(re.search(p, text_) for p in patterns)
 
 
-def is_bad_output(text_, prompt_, label_):
-    # Too short or too similar to prompt
+def is_valid_output(text_, prompt_, label_):
     cleaned_ = clean_output(text_, prompt_)
     if len(cleaned_) < 10:
-        return True
-    if cleaned_.lower() in prompt_.lower():
-        return True
+        return False
     if label_ == "sensitive" and not plausible_sensitive(cleaned_):
-        return True
-    return False
+        return False
+    return True
 
 
-# -------------------
-# Generation Loop
-# -------------------
+# ------------------- Generation -------------------
 try:
-    print("Starting generation of test data")
-    seen_texts = set()
-
-    # Precompute prompt batches for efficiency
-    prompt_pairs = []
-    for i in range(NUM_SAMPLES):
-        if i % 2 == 0:
-            prompt_pairs.append((random.choice(SENSITIVE_PROMPTS), "sensitive"))
-        else:
-            prompt_pairs.append((random.choice(NON_SENSITIVE_PROMPTS), "non-sensitive"))
-
-    i = 0
+    print("Starting generation...")
     start_time = time.time()
-    bar_len = 30  # Progress bar length
-    while i < NUM_SAMPLES:
-        done = len(generated_data)
-        remaining = NUM_SAMPLES - done
-        # Calculate values or use '?' if no samples yet
-        if done == 0:
-            avg_time = "?"
-            expected_total = "?"
-            expected_remaining = "?"
-        else:
-            elapsed = time.time() - start_time
-            avg_time = f"{elapsed / done:.2f}"
-            expected_total = f"{(elapsed / done) * NUM_SAMPLES:.1f}"
-            expected_remaining = f"{(elapsed / done) * remaining:.1f}"
+    seen_texts = set()
+    prompts_cycle = cycle([(p, "sensitive") for p in SENSITIVE_PROMPTS] +
+                          [(p, "non-sensitive") for p in NON_SENSITIVE_PROMPTS])
 
-        filled = int(bar_len * done / NUM_SAMPLES)
+    # Initial progress bar print (shows 0 progress)
+    def print_progress_bar(done, total, start_time_):
+        elapsed = time.time() - start_time_
+        avg_time = elapsed / done if done else 0
+        remaining = total - done
+        eta = avg_time * remaining
+        bar_len = 50
+        filled = int(bar_len * done / total)
         bar = "[" + "#" * filled + "-" * (bar_len - filled) + "]"
-        print(
-            f"\r{bar} {done}/{NUM_SAMPLES} | Avg: {avg_time}s/sample | ETA: {expected_remaining}s | Total est: {expected_total}s",
-            end="", flush=True
-        )
+        sys.stdout.write(f"\r{bar} {done}/{total} | ETA: {eta:.1f}s | Avg: {avg_time:.2f}s/sample   ")
+        sys.stdout.flush()
 
-        batch_start_time = time.time()  # optional: for per-batch timing
-        batch_prompts = []
-        labels = []
-        for _ in range(min(BATCH_SIZE, NUM_SAMPLES - i)):
-            prompt, label = prompt_pairs[i + _]
-            batch_prompts.append(prompt)
-            labels.append(label)
 
-        inputs = tokenizer(
-            batch_prompts,
-            return_tensors="pt",
-            padding=True,
-            truncation=True
-        ).to(DEVICE, non_blocking=True)
+    print_progress_bar(len(generated_data), NUM_SAMPLES, start_time)
 
-        with torch.inference_mode():
+    while len(generated_data) < NUM_SAMPLES:
+        batch_prompts, batch_labels = zip(
+            *[next(prompts_cycle) for _ in range(min(BATCH_SIZE, NUM_SAMPLES - len(generated_data)))])
+        inputs = tokenizer(list(batch_prompts), return_tensors="pt", padding=True, truncation=True).to(DEVICE,
+                                                                                                       non_blocking=True)
+
+        with torch.no_grad():
             outputs = model.generate(
                 **inputs,
                 max_length=MAX_LENGTH,
                 temperature=TEMPERATURE,
                 do_sample=True,
-                use_cache=True,
                 pad_token_id=tokenizer.eos_token_id
             )
 
         decoded = tokenizer.batch_decode(outputs, skip_special_tokens=True)
-        for idx, (text, label) in enumerate(zip(decoded, labels)):
-            prompt = batch_prompts[idx]
+        for text, prompt, label in zip(decoded, batch_prompts, batch_labels):
             cleaned = clean_output(text, prompt)
-            retry_count = 0
-            while is_bad_output(cleaned, prompt, label) and retry_count < RETRIES:
-                with torch.inference_mode():
-                    output = model.generate(
-                        **tokenizer(prompt, return_tensors="pt").to(DEVICE, non_blocking=True),
-                        max_length=MAX_LENGTH,
-                        temperature=TEMPERATURE,
-                        do_sample=True,
-                        use_cache=True,
-                        pad_token_id=tokenizer.eos_token_id
-                    )
-                cleaned = clean_output(tokenizer.decode(output[0], skip_special_tokens=True), prompt)
-                retry_count += 1
-            # Deduplicate
-            if not is_bad_output(cleaned, prompt, label) and cleaned not in seen_texts:
+            if cleaned not in seen_texts and is_valid_output(cleaned, prompt, label):
                 generated_data.append({"label": label, "text": cleaned})
                 seen_texts.add(cleaned)
-                i += 1
+
+        # Update progress bar after each batch
+        print_progress_bar(len(generated_data), NUM_SAMPLES, start_time)
+
 except Exception as e:
-    print(e)
+    print(f"\nError: {e}")
 finally:
+    # Print final progress bar before saving
+    print_progress_bar(len(generated_data), NUM_SAMPLES, start_time)
+    print()  # Move to next line after progress bar
     save_and_exit()
