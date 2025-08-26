@@ -1,19 +1,19 @@
 # VulnScan Documentation
 
-VulnScan is designed to detect sensitive data across various file formats. 
-It offers a modular framework to train models using diverse algorithms, 
-from traditional ML classifiers to advanced Neural Networks. 
+VulnScan is designed to detect sensitive data across various file formats.
+It offers a modular framework to train models using diverse algorithms,
+from traditional ML classifiers to advanced Neural Networks.
 
 This document outlines the system's naming conventions, lifecycle, and model configuration.
 
 > [!NOTE]
 > Ported in update 3.5.0 of Logicytics - Latest update from there was 3.4.2
-> 
+>
 > You can find the main repo and generated files [here](https://github.com/DefinetlyNotAI/Logicytics/tree/main/CODE/vulnScan)
 
 > [!IMPORTANT]
 > Old documentation is available in the `Archived Models` directory of this [repository](https://github.com/DefinetlyNotAI/VulnScan_Data)
-> 
+>
 > This documentation is covers test data, metrics and niche features.
 
 ---
@@ -24,16 +24,16 @@ This document outlines the system's naming conventions, lifecycle, and model con
 `Model {Type of model} .{Version}`
 
 - **Type of Model**: Describes the training data configuration.
-  - `Sense`: Sensitive data set with 50k files, each 50KB in size.
-  - `SenseNano`: Test set with 5-10 files, each 5KB, used for error-checking.
-  - `SenseMacro`: Large dataset with 1M files, each 10KB. This is computationally intensive, so some corners were cut in training.
-  - `SenseMini`: Dataset with 10K files, each between 10-200KB. Balanced size for effective training and resource efficiency.
+    - `Sense`: Sensitive data set with 50k files, each 50KB in size.
+    - `SenseNano`: Test set with 5-10 files, each 5KB, used for error-checking.
+    - `SenseMacro`: Large dataset with 1M files, each 10KB. This is computationally intensive, so some corners were cut in training.
+    - `SenseMini`: Dataset with 10K files, each between 10-200KB. Balanced size for effective training and resource efficiency.
 
 - **Version Format**: `{Version#}{c}{Repeat#}`
-  - **Version#**: Increment for major code updates.
-  - **c**: Model identifier (e.g., NeuralNetwork, BERT, etc.). See below for codes.
-  - **Repeat#**: Number of times the same model was trained without significant code changes, used to improve consistency.
-  - **-F**: Denotes a failed model or a corrupted model.
+    - **Version#**: Increment for major code updates.
+    - **c**: Model identifier (e.g., NeuralNetwork, BERT, etc.). See below for codes.
+    - **Repeat#**: Number of times the same model was trained without significant code changes, used to improve consistency.
+    - **-F**: Denotes a failed model or a corrupted model.
 
 ### Model Identifiers
 
@@ -52,7 +52,7 @@ This document outlines the system's naming conventions, lifecycle, and model con
 | `x`  | XGBoost                   |
 
 ### Example
-`Model Sense .1n2`: 
+`Model Sense .1n2`:
 - Dataset: `Sense` (50k files, 50KB each).
 - Version: 1 (first major version).
 - Model: `NeuralNetwork` (`n`).
@@ -101,7 +101,7 @@ This document outlines the system's naming conventions, lifecycle, and model con
 ---
 
 ## Preferred Model
-**NeuralNetwork (`n`)**  
+**NeuralNetwork (`n`)**
 - Proven to be the most effective for detecting sensitive data in the project.
 
 ---
@@ -121,27 +121,27 @@ This document outlines the system's naming conventions, lifecycle, and model con
 
 # More files
 
-There is a repository that archived all the data used to make the model, 
-as well as previously trained models for you to test out 
-(loading scripts and vectorizers are not included). 
+There is a repository that archived all the data used to make the model,
+as well as previously trained models for you to test out
+(loading scripts and vectorizers are not included).
 
 The repository is located [here](https://github.com/DefinetlyNotAI/VulnScan_Data).
 
 The repository contains the following directories:
 - `Archived Models`: Contains the previously trained models. Is organized by the model type then version.
 - `NN features`: Contains information about the model `.3n3` and the vectorizer used. Information include:
-  - `Documentation_Study_Network.md`: A markdown file that contains more info.
-  - `Neural Network Nodes Graph.gexf`: A Gephi file that contains the model nodes and edges.
-    - `Nodes and edges (GEPHI).csv`: A CSV file that contains the model nodes and edges.
-    - `Statistics`: Directories made by Gephi, containing the statistics of the model nodes and edges.
-  - `Feature_Importance.svg`: A SVG file that contains the feature importance of the model.
-  - `Loss_Landscape_3D.html`: A HTML file that contains the 3D loss landscape of the model.
-  - `Model Accuracy Over Epochs.png` and `Model Loss Over Epochs.png`: PNG files that contain the model accuracy and loss over epochs.
-  - `Model state dictionary.txt`: A text file that contains the model state dictionary.
-  - `Model Summary.txt`: A text file that contains the model summary.
-  - `Model Visualization.png`: A PNG file that contains the model visualization.
-  - `Top_90_Features.svg`: A SVG file that contains the top 90 features of the model.
-  - `Vectorizer features.txt`: A text file that contains the vectorizer features.
-  - `Visualize Activation.png`: A PNG file that contains the visualization of the model activation.
-  - `Visualize t-SNE.png`: A PNG file that contains the visualization of the model t-SNE.
-  - `Weight Distribution.png`: A PNG file that contains the weight distribution of the model.
+    - `Documentation_Study_Network.md`: A markdown file that contains more info.
+    - `Neural Network Nodes Graph.gexf`: A Gephi file that contains the model nodes and edges.
+        - `Nodes and edges (GEPHI).csv`: A CSV file that contains the model nodes and edges.
+        - `Statistics`: Directories made by Gephi, containing the statistics of the model nodes and edges.
+    - `Feature_Importance.svg`: A SVG file that contains the feature importance of the model.
+    - `Loss_Landscape_3D.html`: A HTML file that contains the 3D loss landscape of the model.
+    - `Model Accuracy Over Epochs.png` and `Model Loss Over Epochs.png`: PNG files that contain the model accuracy and loss over epochs.
+    - `Model state dictionary.txt`: A text file that contains the model state dictionary.
+    - `Model Summary.txt`: A text file that contains the model summary.
+    - `Model Visualization.png`: A PNG file that contains the model visualization.
+    - `Top_90_Features.svg`: A SVG file that contains the top 90 features of the model.
+    - `Vectorizer features.txt`: A text file that contains the vectorizer features.
+    - `Visualize Activation.png`: A PNG file that contains the visualization of the model activation.
+    - `Visualize t-SNE.png`: A PNG file that contains the visualization of the model t-SNE.
+    - `Weight Distribution.png`: A PNG file that contains the weight distribution of the model.
