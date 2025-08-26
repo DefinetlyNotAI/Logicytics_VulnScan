@@ -1,227 +1,104 @@
-from __future__ import annotations
+# high_quality_data_gen_tqdm.py
+from transformers import AutoModelForCausalLM, AutoTokenizer
+import torch
+import json
+from tqdm import tqdm
 
-import configparser
-import os
-import random
-import string
+# -----------------------------
+# Configuration
+# -----------------------------
+MODEL_NAME = "EleutherAI/gpt-neo-1.3B"  # fully offline
+NUM_SAMPLES = 200
+OUTPUT_FILE = "generated_files.json"
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+MAX_LENGTH = 200
+TEMPERATURE = 0.7
 
-from faker import Faker
+# -----------------------------
+# Load Model & Tokenizer
+# -----------------------------
+print("Downloading GPT-Neo 1.3B model, this may take a few minutes...")
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+model = AutoModelForCausalLM.from_pretrained(MODEL_NAME).to(DEVICE)
+print("Model loaded!")
 
-from Logicytics import Log, DEBUG
+# -----------------------------
+# Prompts
+# -----------------------------
+SENSITIVE_PROMPT = (
+    "Generate a realistic sensitive file snippet (fake values). "
+    "Examples of sensitive content:\n"
+    "- Password: Abc12345\n"
+    "- API Key: sk_test_4eC39HqLyjWDarjtT1zdp7dc\n"
+    "- Credit Card: 4111-1111-1111-1111\n"
+    "- Email: user@example.com\n"
+    "Now generate a new sensitive snippet, try to embed it in normal text or values, like a short paragraph that explains the emails password, etc:\n"
+)
 
-logger = Log(
-    {"log_level": DEBUG,
-     "filename": "../../../ACCESS/LOGS/VulnScan_Train.log",
-     "colorlog_fmt_parameters":
-         "%(log_color)s%(levelname)-8s%(reset)s %(yellow)s%(asctime)s %(blue)s%(message)s",
-     }
+NON_SENSITIVE_PROMPT = (
+    "Generate a harmless, non-sensitive file snippet. Examples:\n"
+    "- Meeting notes: Discuss project deadlines\n"
+    "- Log: System started successfully\n"
+    "- Code snippet: def add(a, b): return a + b\n"
+    "- Note: Remember to buy groceries\n"
+    "Now generate a new non-sensitive snippet, try make it look like sensitive content, but is not:\n"
 )
 
 
-def generate_random_filename(extensions: str, suffix_x: str = '') -> str:
-    """
-    Generate a random filename with the given extension and optional suffix.
+# -----------------------------
+# Helper Function
+# -----------------------------
+def generate_text(prompt, max_length=MAX_LENGTH):
+    inputs = tokenizer(prompt, return_tensors="pt").to(DEVICE)
+    output = model.generate(
+        **inputs,
+        max_length=max_length,
+        do_sample=True,
+        temperature=TEMPERATURE,
+        pad_token_id=tokenizer.eos_token_id
+    )
+    text = tokenizer.decode(output[0], skip_special_tokens=True)
+    return text[len(prompt):].strip()
 
-    Args:
-        extensions (str): The file extension.
-        suffix_x (str, optional): An optional suffix to add to the filename.
 
-    Returns:
-        str: The generated random filename.
-    """
-    return ''.join(random.choices(string.ascii_letters + string.digits, k=10)) + suffix_x + extensions
+# -----------------------------
+# Generate Dataset
+# -----------------------------
+data = []
 
-
-def generate_content_for_extension(extensions: str, size: int | float) -> tuple[str, str]:
-    """
-    Generate content based on the file extension and size.
-
-    Args:
-        extensions (str): The file extension.
-        size (int | float): The size of the content to generate.
-
-    Returns:
-        tuple[str, str]: The generated content and a suffix indicating the sensitivity level.
-    """
-    full_sensitive_chance = float(config.get('full_sensitive_chance', '0.1'))
-    partial_sensitive_chance = float(config.get('partial_sensitive_chance', '0.3'))
-
-    def generate_sensitive_data() -> str:
-        """
-        Generate sensitive data based on the file extension.
-
-        Returns:
-            str: The generated sensitive data.
-        """
-        sensitive_data_generators = {
-            '.txt': lambda: random.choice([
-                fake.credit_card_number(),
-                fake.ssn(),
-                fake.password(),
-                fake.email(),
-                fake.phone_number(),
-                fake.iban(),
-            ]),
-            '.json': lambda: {
-                'credit_card': fake.credit_card_number(),
-                'email': fake.email(),
-                'phone': fake.phone_number(),
-                'password': fake.password(),
-                'iban': fake.iban(),
-            },
-            '.csv': lambda: ",".join([
-                fake.credit_card_number(),
-                fake.email(),
-                fake.phone_number(),
-            ]),
-            '.xml': lambda: f"<sensitive>{random.choice([fake.credit_card_number(), fake.iban(), fake.password()])}</sensitive>",
-            '.log': lambda: f"{fake.date_time()} - Sensitive Data: {random.choice([fake.email(), fake.password(), fake.ipv4_private()])}",
-            'default': lambda: fake.text(max_nb_chars=50)
-        }
-
-        return sensitive_data_generators.get(extensions, sensitive_data_generators['default'])()
-
-    def generate_regular_content(extension_grc: str, sizes: int | float) -> str:
-        """
-        Generate regular content based on the file extension and size.
-
-        Args:
-            extension_grc (str): The file extension.
-            sizes (int | float): The size of the content to generate.
-
-        Returns:
-            str: The generated regular content.
-        """
-        if extension_grc == '.txt':
-            content_grc = fake.text(max_nb_chars=sizes)
-        elif extension_grc == '.json':
-            # noinspection PyTypeChecker
-            content_grc = fake.json(data_columns={
-                'name': 'name',
-                'email': 'email',
-                'phone': 'phone_number'
-            }, num_rows=sizes // 50)
-        elif extension_grc == '.csv':
-            content_grc = "\n".join(
-                ",".join([fake.name(), fake.email(), fake.phone_number()]) for _ in range(sizes // 50)
-            )
-        elif extension_grc == '.xml':
-            content_grc = f"<root>{''.join([f'<item>{fake.text(50)}</item>' for _ in range(sizes // 100)])}</root>"
-        elif extension_grc == '.log':
-            content_grc = "\n".join([f"{fake.date_time()} - {fake.text(50)}" for _ in range(sizes // 100)])
+# Outer progress bar for all samples
+with tqdm(total=NUM_SAMPLES, desc="Generating files") as pbar:
+    for i in range(NUM_SAMPLES):
+        if i % 2 == 0:
+            prompt = SENSITIVE_PROMPT
+            label = 1
         else:
-            content_grc = fake.text(max_nb_chars=sizes)
-        return content_grc
+            prompt = NON_SENSITIVE_PROMPT
+            label = 0
 
-    if random.random() < full_sensitive_chance:
-        if extensions == '.json':
-            contents = str([generate_sensitive_data() for _ in range(size // 500)])
-        elif extensions in ['.txt', '.log', '.xml']:
-            contents = "\n".join(generate_sensitive_data() for _ in range(size // 500))
-        elif extensions == '.csv':
-            contents = "\n".join([generate_sensitive_data() for _ in range(size // 500)])
-        else:
-            contents = "\n".join([generate_sensitive_data() for _ in range(size // 500)])
-        return contents, '-sensitive'
-    else:
-        regular_content = generate_regular_content(extensions, size)
-        if random.random() < partial_sensitive_chance:
-            sensitive_data_count = max(1, size // 500)
-            sensitive_data = [generate_sensitive_data() for _ in range(sensitive_data_count)]
-            regular_content_lines = regular_content.split("\n")
-            for _ in range(sensitive_data_count):
-                insert_position = random.randint(0, len(regular_content_lines) - 1)
-                regular_content_lines.insert(insert_position, str(random.choice(sensitive_data)))
-            contents = "\n".join(regular_content_lines)
-            return contents, '-mix'
-        else:
-            contents = regular_content
-            return contents, '-none'
+        # Inner progress bar for generation attempt (optional)
+        for _ in tqdm(range(1), desc=f"Generating file {i}", leave=False):
+            content = generate_text(prompt)
 
+        if not content.strip():
+            pbar.update(1)
+            continue  # skip empty outputs
 
-def generate_file_content(extensions: str) -> tuple[str, str]:
-    """
-    Generate file content based on the file extension.
+        if label == 1 and not any(char.isdigit() for char in content):
+            pbar.update(1)
+            continue  # filter bad sensitive examples
 
-    Args:
-        extensions (str): The file extension.
+        data.append({
+            "filename": f"file_{i}.txt",
+            "content": content,
+            "label": label
+        })
+        pbar.update(1)
 
-    Returns:
-        tuple[str, str]: The generated content and a suffix indicating the sensitivity level.
-    """
-    size = random.randint(MIN_FILE_SIZE, MAX_FILE_SIZE)
-    if SIZE_VARIATION != 0:
-        variation_choice = random.choice([1, 2, 3, 4])
-    if variation_choice == 1:
-        size = abs(int(size + (size * SIZE_VARIATION)))
-    elif variation_choice == 2:
-        size = abs(int(size - (size * SIZE_VARIATION)))
-    elif variation_choice == 3:
-        size = abs(int(size + (size / SIZE_VARIATION)))
-    elif variation_choice == 4:
-        size = abs(int(size - (size / SIZE_VARIATION)))
-    logger.debug(f"Generating {extensions} content of size {size} bytes")
-    return generate_content_for_extension(extensions, size)
+# Save to JSON
+with tqdm(total=1, desc="Saving JSON") as pbar:
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    pbar.update(1)
 
-
-if __name__ == "__main__":
-    """
-    Main function to generate files based on the configuration.
-    """
-    fake = Faker()
-
-    config = configparser.ConfigParser()
-    config.read('../../config.ini')
-
-    config = config['VulnScan.generate Settings']
-    EXTENSIONS_ALLOWED = config.get('extensions', '.txt').split(',')
-    SAVE_PATH = config.get('save_path', '.')
-    CODE_NAME = config.get('code_name', 'Sense')
-    SIZE_VARIATION = float(config.get('size_variation', '0.1'))
-
-    os.makedirs(SAVE_PATH, exist_ok=True)
-
-    DEFAULT_FILE_NUM = 10000
-    DEFAULT_MIN_FILE_SIZE = 10 * 1024
-    DEFAULT_MAX_FILE_SIZE = 10 * 1024
-
-    if CODE_NAME == 'SenseMacro':
-        print(
-            "\033[91mDeprecationWarning: SenseMacro has been removed due to instability issues. "
-            "Please use 'Sense' instead for better stability and performance. "
-            "Defaulting to 'Sense' settings for now.\033[0m"
-        )
-        CODE_NAME = 'Sense'
-
-    if CODE_NAME == 'Sense':
-        FILE_NUM = DEFAULT_FILE_NUM * 5
-        MIN_FILE_SIZE = DEFAULT_MIN_FILE_SIZE * 5
-        MAX_FILE_SIZE = DEFAULT_MAX_FILE_SIZE * 5
-    elif CODE_NAME == 'SenseNano':
-        FILE_NUM = 5
-        MIN_FILE_SIZE = int(DEFAULT_MIN_FILE_SIZE * 0.5)
-        MAX_FILE_SIZE = int(DEFAULT_MAX_FILE_SIZE * 0.5)
-    elif CODE_NAME == 'SenseMini':
-        FILE_NUM = DEFAULT_FILE_NUM
-        MIN_FILE_SIZE = DEFAULT_MIN_FILE_SIZE
-        MAX_FILE_SIZE = DEFAULT_MAX_FILE_SIZE
-    else:
-        MIN_FILE_SIZE = int(config['min_file_size'].replace('KB', '')) * 1024
-        MAX_FILE_SIZE = int(config['max_file_size'].replace('KB', '')) * 1024
-        FILE_NUM = DEFAULT_FILE_NUM
-
-    logger.info(f"Generating {FILE_NUM} files with sizes between {MIN_FILE_SIZE} and {MAX_FILE_SIZE} bytes")
-
-    for i in range(FILE_NUM):
-        logger.debug(f"Generating file {i + 1}/{FILE_NUM}")
-        extension = random.choice(EXTENSIONS_ALLOWED).strip()
-        content, suffix = generate_file_content(extension)
-        filename = generate_random_filename(extension, suffix)
-        filepath = os.path.join(SAVE_PATH, filename)
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(content)
-
-    logger.info(f"Generated {FILE_NUM} files in {SAVE_PATH}")
-else:
-    raise ImportError("This training script is meant to be run directly "
-                      "and cannot be imported. Please execute it as a standalone script.")
+print(f"Generated {len(data)} samples in {OUTPUT_FILE}")
