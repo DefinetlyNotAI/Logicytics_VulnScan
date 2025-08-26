@@ -2,9 +2,11 @@ import json
 import re
 import signal
 import sys
+import time  # <-- add this import
 
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
+
 # -------------------
 # Configuration
 # -------------------
@@ -52,6 +54,7 @@ model.eval()
 
 generated_data = []
 print("Setup complete.")
+
 
 # -------------------
 # Graceful Cleanup
@@ -124,7 +127,10 @@ try:
             prompt_pairs.append((random.choice(NON_SENSITIVE_PROMPTS), "non-sensitive"))
 
     i = 0
+    start_time = time.time()
+    bar_len = 30  # Progress bar length
     while i < NUM_SAMPLES:
+        batch_start_time = time.time()  # optional: for per-batch timing
         batch_prompts = []
         labels = []
         for _ in range(min(BATCH_SIZE, NUM_SAMPLES - i)):
@@ -172,7 +178,21 @@ try:
                 seen_texts.add(cleaned)
                 i += 1
             # else: skip bad output or duplicate
-        print(f"\rGenerated {len(generated_data)}/{NUM_SAMPLES} samples", end="", flush=True)
+        elapsed = time.time() - start_time
+        done = len(generated_data)
+        avg_time = elapsed / max(1, done)
+        remaining = NUM_SAMPLES - done
+        expected_total = avg_time * NUM_SAMPLES
+        expected_remaining = avg_time * remaining
+
+        # Custom progress bar
+        filled = int(bar_len * done / NUM_SAMPLES)
+        bar = "[" + "#" * filled + "-" * (bar_len - filled) + "]"
+
+        print(
+            f"\r{bar} {done}/{NUM_SAMPLES} | Avg: {avg_time:.2f}s/sample | ETA: {expected_remaining:.1f}s | Total est: {expected_total:.1f}s",
+            end="", flush=True
+        )
 except Exception as e:
     print(e)
 finally:
