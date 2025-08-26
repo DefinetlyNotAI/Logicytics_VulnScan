@@ -2,7 +2,8 @@ import json
 import re
 import signal
 import sys
-import time  # <-- add this import
+import time
+import random
 
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -67,8 +68,8 @@ def save_and_exit():
     sys.exit(0)
 
 
-def signal_handler(sig, frame):
-    print("\nKeyboardInterrupt detected! Cleaning up...")
+def signal_handler(*args, **kwargs):
+    print(f"\nKeyboardInterrupt detected! Cleaning up... Provided arguments for handlers: {args}, {kwargs}")
     save_and_exit()
 
 
@@ -78,16 +79,16 @@ signal.signal(signal.SIGINT, signal_handler)
 # -------------------
 # Helper: Clean output
 # -------------------
-def clean_output(text, prompt):
+def clean_output(text_, prompt_):
     # Remove prompt echo and leading/trailing whitespace
-    cleaned = text.replace(prompt, "").strip()
+    cleaned_ = text_.replace(prompt_, "").strip()
     # Remove repeated prompt fragments
-    for line in prompt.split("\n"):
-        cleaned = cleaned.replace(line.strip(), "")
-    return cleaned
+    for line in prompt_.split("\n"):
+        cleaned_ = cleaned_.replace(line.strip(), "")
+    return cleaned_
 
 
-def plausible_sensitive(text):
+def plausible_sensitive(text_):
     # Check for plausible secrets (email, key, password, token)
     patterns = [
         r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",  # email
@@ -95,17 +96,17 @@ def plausible_sensitive(text):
         r"(?i)password\s*[:=]\s*['\"][^'\"]{6,}['\"]",  # password
         r"(?i)token\s*[:=]\s*[A-Za-z0-9\-]{10,}",  # token
     ]
-    return any(re.search(p, text) for p in patterns)
+    return any(re.search(p, text_) for p in patterns)
 
 
-def is_bad_output(text, prompt, label):
+def is_bad_output(text_, prompt_, label_):
     # Too short or too similar to prompt
-    cleaned = clean_output(text, prompt)
-    if len(cleaned) < 10:
+    cleaned_ = clean_output(text_, prompt_)
+    if len(cleaned_) < 10:
         return True
-    if cleaned.lower() in prompt.lower():
+    if cleaned_.lower() in prompt_.lower():
         return True
-    if label == "sensitive" and not plausible_sensitive(cleaned):
+    if label_ == "sensitive" and not plausible_sensitive(cleaned_):
         return True
     return False
 
@@ -116,7 +117,6 @@ def is_bad_output(text, prompt, label):
 try:
     print("Starting generation of test data")
     seen_texts = set()
-    import random
 
     # Precompute prompt batches for efficiency
     prompt_pairs = []
@@ -130,6 +130,26 @@ try:
     start_time = time.time()
     bar_len = 30  # Progress bar length
     while i < NUM_SAMPLES:
+        done = len(generated_data)
+        remaining = NUM_SAMPLES - done
+        # Calculate values or use '?' if no samples yet
+        if done == 0:
+            avg_time = "?"
+            expected_total = "?"
+            expected_remaining = "?"
+        else:
+            elapsed = time.time() - start_time
+            avg_time = f"{elapsed / done:.2f}"
+            expected_total = f"{(elapsed / done) * NUM_SAMPLES:.1f}"
+            expected_remaining = f"{(elapsed / done) * remaining:.1f}"
+
+        filled = int(bar_len * done / NUM_SAMPLES)
+        bar = "[" + "#" * filled + "-" * (bar_len - filled) + "]"
+        print(
+            f"\r{bar} {done}/{NUM_SAMPLES} | Avg: {avg_time}s/sample | ETA: {expected_remaining}s | Total est: {expected_total}s",
+            end="", flush=True
+        )
+
         batch_start_time = time.time()  # optional: for per-batch timing
         batch_prompts = []
         labels = []
@@ -177,22 +197,6 @@ try:
                 generated_data.append({"label": label, "text": cleaned})
                 seen_texts.add(cleaned)
                 i += 1
-            # else: skip bad output or duplicate
-        elapsed = time.time() - start_time
-        done = len(generated_data)
-        avg_time = elapsed / max(1, done)
-        remaining = NUM_SAMPLES - done
-        expected_total = avg_time * NUM_SAMPLES
-        expected_remaining = avg_time * remaining
-
-        # Custom progress bar
-        filled = int(bar_len * done / NUM_SAMPLES)
-        bar = "[" + "#" * filled + "-" * (bar_len - filled) + "]"
-
-        print(
-            f"\r{bar} {done}/{NUM_SAMPLES} | Avg: {avg_time:.2f}s/sample | ETA: {expected_remaining:.1f}s | Total est: {expected_total:.1f}s",
-            end="", flush=True
-        )
 except Exception as e:
     print(e)
 finally:
