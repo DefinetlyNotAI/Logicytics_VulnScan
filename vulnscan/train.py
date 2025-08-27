@@ -8,7 +8,7 @@ from sklearn.metrics import accuracy_score, f1_score
 from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 from tqdm import tqdm
 
-from vulnscan.config import cfg
+from vulnscan.config import TrainingConfig
 from vulnscan.log import log
 
 
@@ -61,127 +61,132 @@ class SimpleNN(nn.Module):
 
 
 # ---------------- TRAINING ----------------
-def create_sampler(dataset: EmbeddingDataset, model: SimpleNN):
-    losses = []
-    criterion = nn.BCEWithLogitsLoss(reduction='none')
+class Train:
+    def __init__(self, cfg: TrainingConfig):
+        self.cfg = cfg
 
-    model.eval()
-    with torch.no_grad():
-        for X, y in DataLoader(dataset=dataset, batch_size=cfg.BATCH_SIZE):
-            X, y = X.to(cfg.DEVICE), y.to(cfg.DEVICE)
-            outputs = model(X)
-            batch_loss = criterion(outputs, y)
-            losses.extend(batch_loss.view(-1).tolist())  # flatten before extending
+    def create_sampler(self, dataset: EmbeddingDataset, model: SimpleNN):
+        losses = []
+        criterion = nn.BCEWithLogitsLoss(reduction='none')
 
-    weights = torch.tensor(losses).float()
-    return WeightedRandomSampler(weights=weights, num_samples=len(weights), replacement=True)
+        model.eval()
+        with torch.no_grad():
+            for X, y in DataLoader(dataset=dataset, batch_size=self.cfg.BATCH_SIZE):
+                X, y = X.to(self.cfg.DEVICE), y.to(self.cfg.DEVICE)
+                outputs = model(X)
+                batch_loss = criterion(outputs, y)
+                losses.extend(batch_loss.view(-1).tolist())  # flatten before extending
 
+        weights = torch.tensor(losses).float()
+        return WeightedRandomSampler(weights=weights, num_samples=len(weights), replacement=True)
 
-def train_model(model: SimpleNN, train_loader: DataLoader, val_loader: DataLoader, max_epochs: int = cfg.MAX_EPOCHS):
-    criterion = nn.BCEWithLogitsLoss()
-    optimizer = optim.Adam(params=model.parameters(), lr=cfg.LR)
+    def model(self, model: SimpleNN, train_loader: DataLoader, val_loader: DataLoader):
+        max_epochs: int = self.cfg.MAX_EPOCHS
+        criterion = nn.BCEWithLogitsLoss()
+        optimizer = optim.Adam(params=model.parameters(), lr=self.cfg.LR)
 
-    # Jumpstarter scheduler config
-    max_lr = cfg.LR * cfg.LR_JUMP["MAX"]
-    min_lr = cfg.LR * cfg.LR_JUMP["MIN"]
-    patience_for_jump = cfg.JUMP_PATIENCE
-    lr_decay_factor = cfg.LR_DECAY
-    best_val_loss = cfg.BEST_VAL_LOSS
-    patience_counter = cfg.COUNTER["PATIENCE"]
-    jump_counter = cfg.COUNTER["JUMP"]
+        # Jumpstarter scheduler config
+        max_lr = self.cfg.LR * self.cfg.LR_JUMP["MAX"]
+        min_lr = self.cfg.LR * self.cfg.LR_JUMP["MIN"]
+        patience_for_jump = self.cfg.JUMP_PATIENCE
+        lr_decay_factor = self.cfg.LR_DECAY
+        best_val_loss = self.cfg.BEST_VAL_LOSS
+        patience_counter = self.cfg.COUNTER["PATIENCE"]
+        jump_counter = self.cfg.COUNTER["JUMP"]
 
-    history = {
-        "train_loss": [], "val_loss": [],
-        "accuracy": [], "precision": [],
-        "recall": [], "f1": []
-    }
+        history = {
+            "train_loss": [], "val_loss": [],
+            "accuracy": [], "precision": [],
+            "recall": [], "f1": []
+        }
 
-    # Use the new amp API
-    scaler = torch.amp.GradScaler(enabled=(cfg.DEVICE == "cuda"))
+        # Use the new amp API
+        scaler = torch.amp.GradScaler(enabled=(self.cfg.DEVICE == "cuda"))
 
-    for epoch in range(max_epochs):
-        try:
-            log(f"Epoch {epoch + 1}/{max_epochs}")
-            model.train()
-            epoch_loss, all_preds, all_labels = 0, [], []
+        for epoch in range(max_epochs):
+            try:
+                log(message=f"Epoch {epoch + 1}/{max_epochs}", cfg=self.cfg)
+                model.train()
+                epoch_loss, all_preds, all_labels = 0, [], []
 
-            # --- Training Loop ---
-            for X, y in tqdm(train_loader):
-                X, y = X.to(cfg.DEVICE), y.to(cfg.DEVICE)
-                optimizer.zero_grad()
+                # --- Training Loop ---
+                for X, y in tqdm(train_loader):
+                    X, y = X.to(self.cfg.DEVICE), y.to(self.cfg.DEVICE)
+                    optimizer.zero_grad()
 
-                with torch.amp.autocast(device_type="cuda" if cfg.DEVICE == "cuda" else "cpu", enabled=(cfg.DEVICE == "cuda")):
-                    outputs = model(X)
-                    loss = criterion(outputs, y)
+                    with torch.amp.autocast(device_type="cuda" if self.cfg.DEVICE == "cuda" else "cpu",
+                                            enabled=(self.cfg.DEVICE == "cuda")):
+                        outputs = model(X)
+                        loss = criterion(outputs, y)
 
-                if cfg.DEVICE == "cuda":
-                    scaler.scale(loss).backward()
-                    scaler.step(optimizer)
-                    scaler.update()
-                else:
-                    loss.backward()
-                    optimizer.step()
+                    if self.cfg.DEVICE == "cuda":
+                        scaler.scale(loss).backward()
+                        scaler.step(optimizer)
+                        scaler.update()
+                    else:
+                        loss.backward()
+                        optimizer.step()
 
-                epoch_loss += loss.item()
-                all_preds.extend((torch.sigmoid(outputs) > 0.5).cpu().numpy())
-                all_labels.extend(y.cpu().numpy())
+                    epoch_loss += loss.item()
+                    all_preds.extend((torch.sigmoid(outputs) > 0.5).cpu().numpy())
+                    all_labels.extend(y.cpu().numpy())
 
-            # --- Metrics ---
-            acc = accuracy_score(y_true=all_labels, y_pred=all_preds)
-            history["train_loss"].append(epoch_loss / len(train_loader))
-            history["accuracy"].append(acc)
+                # --- Metrics ---
+                acc = accuracy_score(y_true=all_labels, y_pred=all_preds)
+                history["train_loss"].append(epoch_loss / len(train_loader))
+                history["accuracy"].append(acc)
 
-            # --- Validation Loop ---
-            model.eval()
-            val_loss, val_preds, val_labels_list = 0, [], []
-            with torch.no_grad():
-                for X, y in val_loader:
-                    X, y = X.to(cfg.DEVICE), y.to(cfg.DEVICE)
-                    outputs = model(X)
-                    loss = criterion(outputs, y)
-                    val_loss += loss.item()
-                    val_preds.extend((torch.sigmoid(outputs) > 0.5).cpu().numpy())
-                    val_labels_list.extend(y.cpu().numpy())
+                # --- Validation Loop ---
+                model.eval()
+                val_loss, val_preds, val_labels_list = 0, [], []
+                with torch.no_grad():
+                    for X, y in val_loader:
+                        X, y = X.to(self.cfg.DEVICE), y.to(self.cfg.DEVICE)
+                        outputs = model(X)
+                        loss = criterion(outputs, y)
+                        val_loss += loss.item()
+                        val_preds.extend((torch.sigmoid(outputs) > 0.5).cpu().numpy())
+                        val_labels_list.extend(y.cpu().numpy())
 
-            val_loss /= len(val_loader)
-            val_acc = accuracy_score(y_true=val_labels_list, y_pred=val_preds)
-            val_f1 = f1_score(y_true=val_labels_list, y_pred=val_preds, zero_division=0)
-            history["val_loss"].append(val_loss)
-            history["f1"].append(val_f1)
+                val_loss /= len(val_loader)
+                val_acc = accuracy_score(y_true=val_labels_list, y_pred=val_preds)
+                val_f1 = f1_score(y_true=val_labels_list, y_pred=val_preds, zero_division=0)
+                history["val_loss"].append(val_loss)
+                history["f1"].append(val_f1)
 
-            # --- Jumpstarter LR logic ---
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                patience_counter = 0
-                for g in optimizer.param_groups:
-                    g['lr'] = max(g['lr'] * lr_decay_factor, min_lr)
-            else:
-                patience_counter += 1
-                if patience_counter >= patience_for_jump:
-                    jump_counter += 1
-                    log(f"Validation stalled. Jumping LR (jump #{jump_counter})!")
-                    for g in optimizer.param_groups:
-                        g['lr'] = min(g['lr'] * 3, max_lr)
+                # --- Jumpstarter LR logic ---
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
                     patience_counter = 0
+                    for g in optimizer.param_groups:
+                        g['lr'] = max(g['lr'] * lr_decay_factor, min_lr)
+                else:
+                    patience_counter += 1
+                    if patience_counter >= patience_for_jump:
+                        jump_counter += 1
+                        log(message=f"Validation stalled. Jumping LR (jump #{jump_counter})!", cfg=self.cfg)
+                        for g in optimizer.param_groups:
+                            g['lr'] = min(g['lr'] * 3, max_lr)
+                        patience_counter = 0
 
-            log(f"Train Loss: {epoch_loss / len(train_loader):.4f} | "
-                f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f} | "
-                f"F1: {val_f1:.4f} | LR: {optimizer.param_groups[0]['lr']:.6f}")
+                log(message=f"Train Loss: {epoch_loss / len(train_loader):.4f} | "
+                    f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f} | "
+                    f"F1: {val_f1:.4f} | LR: {optimizer.param_groups[0]['lr']:.6f}", cfg=self.cfg)
 
-            # --- Early Stopping ---
-            if val_loss > best_val_loss:
-                patience_counter += 1
-                if patience_counter >= cfg.EARLY_STOPPING_PATIENCE and not cfg.AUTO_CONTINUE:
-                    log("Early stopping triggered.")
-                    break
+                # --- Early Stopping ---
+                if val_loss > best_val_loss:
+                    patience_counter += 1
+                    if patience_counter >= self.cfg.EARLY_STOPPING_PATIENCE and not self.cfg.AUTO_CONTINUE:
+                        log(message="Early stopping triggered due to patience threshold being reached.", cfg=self.cfg)
+                        break
 
-            # --- Save checkpoint ---
-            round_dir = f"{cfg.CACHE_DIR}/round_{cfg.MODEL_ROUND}"
-            os.makedirs(name=round_dir, exist_ok=True)
-            model_path = f"{round_dir}/{cfg.MODEL_NAME}_round{cfg.MODEL_ROUND}.pth"
-            torch.save(model.state_dict(), model_path)
-        except KeyboardInterrupt:
-            torch.save(model.state_dict(), model_path)
-            sys.exit("Training interrupted by user early. Saving premature model and quitting.")
+                # --- Save checkpoint ---
+                round_dir = f"{self.cfg.CACHE_DIR}/round_{self.cfg.MODEL_ROUND}"
+                os.makedirs(name=round_dir, exist_ok=True)
+                model_path = f"{round_dir}/{self.cfg.MODEL_NAME}_round{self.cfg.MODEL_ROUND}.pth"
+                torch.save(model.state_dict(), model_path)
+            except KeyboardInterrupt:
+                torch.save(model.state_dict(), model_path)
+                sys.exit("Training interrupted by user early. Saving premature model and quitting.")
 
-    return history
+        return history

@@ -7,7 +7,7 @@ class TrainingConfig:
     def __init__(self, model_name: str = "Model_Sense.4n1"):
         # Model / caching / logging
         self.MODEL_NAME = model_name
-        self.CACHE_DIR = f"../cache/{self.MODEL_NAME}"
+        self.CACHE_DIR = os.path.join(os.getcwd(), "cache", self.MODEL_NAME)
 
         existing_rounds = self.__get_existing_rounds(self.CACHE_DIR)  # Auto-increment round based on existing folders
         self.MODEL_ROUND = max(existing_rounds) + 1 if existing_rounds else 1
@@ -51,8 +51,8 @@ class TrainingConfig:
         self.RAM_THRESHOLD: float = 0.85
 
         # Create necessary folders
-        os.makedirs(os.path.join(os.path.dirname(__file__), self.CACHE_DIR), exist_ok=True)
-        os.makedirs(os.path.join(os.path.dirname(__file__), self.EMBED_CACHE_DIR), exist_ok=True)
+        os.makedirs(self.CACHE_DIR, exist_ok=True)
+        os.makedirs(self.EMBED_CACHE_DIR, exist_ok=True)
 
     @staticmethod
     def __get_existing_rounds(cache_dir: str) -> list[int]:
@@ -86,6 +86,3 @@ class TrainingConfig:
                 setattr(self, key, value)
             else:
                 raise AttributeError(f"TrainingConfig has no attribute '{key}'")
-
-
-cfg = TrainingConfig()
