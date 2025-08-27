@@ -58,7 +58,7 @@ if __name__ == "__main__":
         "MODEL_NAME": "Model_Sense.4n1",  # Name of the model for identification and caching
 
         # Training parameters
-        "BATCH_SIZE": 16,  # Number of samples per training batch
+        "BATCH_SIZE": 32,  # Number of samples per training batch
         "MAX_EPOCHS": 35,  # Maximum number of training epochs
         "EARLY_STOPPING_PATIENCE": 5,  # Number of epochs to wait for improvement before premature stopping
         "LR": 1e-3,  # Initial learning rate
@@ -69,11 +69,11 @@ if __name__ == "__main__":
         "AUTO_CONTINUE": False,  # Whether to automatically continue training from a checkpoint
 
         # Dataset / data generation
-        "DATASET_SIZE": 10,  # Number of samples to generate for training
+        "DATASET_SIZE": 10000,  # Number of samples to generate for training
         "TEXT_MAX_LEN": 128,  # Maximum length of generated text samples
         "TEXT_MAX_LEN_JUMP_RANGE": 10,  # Range for random variation in text length
         "TRAIN_VAL_SPLIT": 0.8,  # Fraction of dataset used for training (rest for validation)
-        "SENSITIVE_PROB": 0.3,  # Probability that a sample contains sensitive data
+        "SENSITIVE_PROB": 0.5,  # Probability that a sample contains sensitive data
 
         # Language / generation
         "TOP_K": 30,  # Top-K sampling: only consider this many top predictions
