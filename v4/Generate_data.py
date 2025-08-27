@@ -12,9 +12,9 @@ MODEL_NAME = "EleutherAI/gpt-neo-1.3B"
 NUM_SAMPLES = 5000
 OUTPUT_FILE = "generated_files.json"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-MAX_LENGTH = 100
+MAX_LENGTH = 200
 TEMPERATURE = 1.0
-BATCH_SIZE = 256
+BATCH_SIZE = 32
 RETRIES = 3
 
 SENSITIVE_PROMPTS = [
@@ -126,13 +126,13 @@ try:
             if cleaned not in seen_texts and is_valid_output(cleaned, prompt):
                 generated_data.append({"label": label, "text": cleaned})
                 seen_texts.add(cleaned)
+                # Update progress bar after each sample
+                print_progress_bar(len(generated_data), NUM_SAMPLES, start_time)
 
         # Flush to file if we reach 90% of samples
         if len(generated_data) >= FLUSH_THRESHOLD:
             with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
                 json.dump(generated_data, f, indent=2)
-
-        print_progress_bar(len(generated_data), NUM_SAMPLES, start_time)
 
 except Exception as e:
     print(f"\nError: {e}")
