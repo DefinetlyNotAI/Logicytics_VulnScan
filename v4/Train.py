@@ -25,13 +25,37 @@ OFFLOAD_FILE = "offloaded_data.json"
 NUM_GENERATED = 100
 MAX_DATASET_SIZE = 2000
 RELOAD_THRESHOLD = 500
-MAX_LENGTH = 64
+MAX_LENGTH = 100
 TEMPERATURE = 0.9
 BATCH_SIZE = 8
-EPOCHS = 3
-MAX_TRAINS = 5
+EPOCHS = 30
+MAX_TRAINS = 500
+
+# Naming, check README.md for details
+TypeOfModel: str = "Sense"
+VersionNum: int = 1
+RepeatNum: int = 1
+ModelID: str = "n"
+
+
+def naming_convention() -> str:
+    Version = f"{VersionNum}{ModelID}{RepeatNum}"
+    ModelName = f"Model_{TypeOfModel}.{Version}"
+
+    AllowedModelTypes = ["SenseNano", "SenseMini", "Sense", "SenseMacro"]
+    AllowedModelIDs = ["b", "dt", "et", "g", "l", "n", "nb", "r", "lr", "v", "x"]
+    if TypeOfModel not in AllowedModelTypes:
+        raise ValueError(f"TypeOfModel must be one of [{AllowedModelTypes}]")
+    if ModelID not in AllowedModelIDs:
+        raise ValueError(f"ModelID must be one of [{AllowedModelIDs}]")
+
+    return ModelName
+
+
+MODEL_NAME = naming_convention()
 
 config_table = [
+    ["Model PTH Name", MODEL_NAME],
     ["Generator Model", GEN_MODEL_NAME],
     ["Classifier Model", CLS_MODEL_NAME],
     ["Generation Device", DEVICE_GEN],
@@ -192,7 +216,7 @@ def main():
 
         if acc > best_acc:
             best_acc = acc
-            torch.save(classifier.state_dict(), "best_classifier.pth")
+            torch.save(classifier.state_dict(), f"{MODEL_NAME}.pth")
             print(f"[SAVE] New best model saved with accuracy {best_acc:.2f}")
 
         gc.collect()
