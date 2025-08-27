@@ -3,14 +3,12 @@
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$">
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
+      <excludeFolder url="file://$MODULE_DIR$/cache" />
       <excludeFolder url="file://$MODULE_DIR$/models" />
       <excludeFolder url="file://$MODULE_DIR$/v4/cache" />
     </content>
     <orderEntry type="jdk" jdkName="Python 3.13" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
-  </component>
-  <component name="PackageRequirementsSettings">
-    <option name="keepMatchingSpecifier" value="false" />
   </component>
   <component name="PyDocumentationSettings">
     <option name="format" value="GOOGLE" />
