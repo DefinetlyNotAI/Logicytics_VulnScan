@@ -1,169 +1,408 @@
+import datetime
 import json
+import os
 import random
-import time
-from pathlib import Path
+import signal
 
+import matplotlib.pyplot as plt
 import psutil
 import torch
-from matplotlib import pyplot as plt
+import torch.nn as nn
+import torch.optim as optim
+from faker import Faker
 from sentence_transformers import SentenceTransformer
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from sklearn.metrics import accuracy_score, f1_score
+from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
+from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
+from transformers import AutoModelForCausalLM, AutoTokenizer, BertTokenizer, BertModel
 
-# ------------------- CONFIG -------------------
-GEN_MODEL_NAME = "EleutherAI/gpt-neo-1.3B"
-CLS_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+# ---------------- CONFIG ----------------
 
-DEVICE_GEN = "cuda" if torch.cuda.is_available() else "cpu"
-DEVICE_EMB = "cpu"  # embeddings on CPU to save GPU VRAM
+# Model / caching / logging
+MODEL_NAME = "Model_Sense.4n1"
+CACHE_DIR = f"cache/{MODEL_NAME}"
+os.makedirs(CACHE_DIR, exist_ok=True)
 
-OUTPUT_FILE = Path("generated_files.json")
-OFFLOAD_FILE = Path("offloaded_data.json")
+# Auto-increment round based on existing folders
+existing_rounds = [int(f.split('_')[-1]) for f in os.listdir(CACHE_DIR)
+                   if f.startswith('round_') and f.split('_')[-1].isdigit()]
+MODEL_ROUND = max(existing_rounds) + 1 if existing_rounds else 1
 
-NUM_GENERATED = 20
-MAX_DATASET_SIZE = 2000
-RAM_USAGE_THRESHOLD = 0.9
-MAX_LENGTH = 150
+LOG_FILE = f"{CACHE_DIR}/training.log"
+EMBED_CACHE_DIR = f"{CACHE_DIR}/round_{MODEL_ROUND}/embeddings"
+os.makedirs(EMBED_CACHE_DIR, exist_ok=True)
+
+# TensorBoard
+writer = SummaryWriter(log_dir=f"{CACHE_DIR}/round_{MODEL_ROUND}/tensorboard_logs")
+
+# Training parameters
+BATCH_SIZE = 16
+MAX_EPOCHS = 35
+EARLY_STOPPING_PATIENCE = 5
+LR = 1e-3
+LR_JUMP = {"MAX": 5, "MIN": 0.1}
+COUNTER = {"PATIENCE": 0, "JUMP": 0}
+JUMP_PATIENCE = 3
+LR_DECAY = 0.9
+BEST_VAL_LOSS = float("inf")
+AUTO_CONTINUE = False
+
+# Dataset / data generation
+DATASET_SIZE = 10
+TEXT_MAX_LEN = 128
+TEXT_MAX_LEN_JUMP_RANGE = 10
+TRAIN_VAL_SPLIT = 0.8
+SENSITIVE_PROB = 0.3
+SENSITIVE_FIELDS = ["ssn", "credit_card", "email", "phone_number", "address", "name"]
+
+# Language / generation
+MULTI_LANGUAGES = ["english", "spanish", "french", "dutch", "arabic", "japanese"]
+TOP_K = 30
+TOP_P = 0.9
 TEMPERATURE = 0.9
-BATCH_SIZE = 8
-EPOCHS = 30
+REP_PENALTY = 1.2
+
+# Device / system
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+RAM_THRESHOLD = 0.85
+
+# Misc / globals
+STOP_TRAINING = False
+faker = Faker()
 
 
-# ------------------- HELPERS -------------------
-def log(msg, color=None):
-    timestamp = time.strftime("%H:%M:%S")
-    if color:
-        print(f"\033[{color}m[{timestamp}] {msg}\033[0m")
-    else:
-        print(f"[{timestamp}] {msg}")
+# ---------------- SIGNAL HANDLER ----------------
+# noinspection PyUnusedLocal
+def signal_handler(sig, frame):
+    global STOP_TRAINING
+    log("Keyboard Interrupt detected! Stopping training gracefully...")
+    STOP_TRAINING = True
 
 
-def check_ram_and_offload(dataset_):
-    usage = psutil.virtual_memory().used / psutil.virtual_memory().total
-    if usage > RAM_USAGE_THRESHOLD:
-        log(f"RAM > {RAM_USAGE_THRESHOLD * 100:.0f}%, offloading {len(dataset_)} entries...", color=33)
-        offloaded = []
-        if OFFLOAD_FILE.exists():
-            with open(OFFLOAD_FILE, "r") as f:
-                offloaded = json.load(f)
-        offloaded.extend(dataset_)
-        with open(OFFLOAD_FILE, "w") as f:
-            json.dump(offloaded, f, indent=2)
-        return []
-    return dataset_
+signal.signal(signal.SIGINT, signal_handler)
 
 
-def load_dataset():
-    if OUTPUT_FILE.exists():
-        with open(OUTPUT_FILE, "r") as f:
-            return json.load(f)
-    return []
+# ---------------- LOGGING ----------------
+def log(message):
+    print(message)
+    with open(LOG_FILE, "a") as f:
+        f.write(f"{datetime.datetime.now()} | {message}\n")
 
 
-def save_dataset(dataset_):
-    with open(OUTPUT_FILE, "w") as f:
-        json.dump(dataset_, f, indent=2)
+# ---------------- SENSITIVE DATA ----------------
+def generate_sensitive_text():
+    field = random.choice(SENSITIVE_FIELDS)
+    if field == "ssn":
+        return f"SSN: {faker.ssn()}"
+    elif field == "credit_card":
+        return f"Credit Card: {faker.credit_card_number()}"
+    elif field == "email":
+        return f"Email: {faker.email()}"
+    elif field == "phone_number":
+        return f"Phone: {faker.phone_number()}"
+    elif field == "address":
+        return f"Address: {faker.address().replace(chr(10), ', ')}"
+    elif field == "name":
+        return f"Name: {faker.name()}"
+    return "Sensitive info: [REDACTED]"
 
 
-def plot_training(losses, cycle):
-    plt.figure(figsize=(6, 4))
-    plt.plot(range(1, len(losses) + 1), losses, marker='o')
-    plt.title(f"Training Loss Cycle {cycle}")
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-    plt.grid(True)
-    plt.savefig(f"training_plot_{cycle}.png")
-    log(f"Saved training plot as training_plot_{cycle}.png", color=36)
+# ---------------- GPT TEXT GENERATION ----------------
+log("Loading GPT-Neo model for text generation...")
+gpt_tokenizer = AutoTokenizer.from_pretrained("EleutherAI/gpt-neo-1.3B")
+gpt_model = AutoModelForCausalLM.from_pretrained("EleutherAI/gpt-neo-1.3B").to(DEVICE)
+if gpt_tokenizer.pad_token is None:
+    gpt_tokenizer.pad_token = gpt_tokenizer.eos_token
+log("Loading MiniLM for embeddings...")
+embed_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
 
-# ------------------- MODEL LOAD -------------------
-log("Loading generator model...")
-tokenizer = AutoTokenizer.from_pretrained(GEN_MODEL_NAME)
-tokenizer.padding_side = "left"
-if tokenizer.pad_token is None:
-    tokenizer.pad_token = tokenizer.eos_token
-
-model_gen = AutoModelForCausalLM.from_pretrained(
-    GEN_MODEL_NAME,
-    torch_dtype=torch.float16 if DEVICE_GEN == "cuda" else torch.float32,
-    low_cpu_mem_usage=True
-).to(DEVICE_GEN)
-model_gen.eval()
-
-log("Loading classifier model...")
-model_emb = SentenceTransformer(CLS_MODEL_NAME, device=DEVICE_EMB)
-
-dataset = load_dataset()
-log(f"Dataset loaded with {len(dataset)} entries")
-
-# ------------------- GENERATION -------------------
-PROMPT_TEMPLATES = [
-    "Write a Java code snippet that",
-    "Create a secure function to",
-    "Provide an example of a JDBC operation that",
-    "Write a code segment handling exceptions that"
-]
-
-
-def generate_batch(batch_size=NUM_GENERATED):
-    prompts = [random.choice(PROMPT_TEMPLATES) for _ in range(batch_size)]
-    enc = tokenizer(prompts, return_tensors="pt", padding=True, truncation=True).to(DEVICE_GEN)
-    with torch.inference_mode():
-        outputs = model_gen.generate(
-            **enc,
-            max_new_tokens=MAX_LENGTH,
-            do_sample=True,
-            temperature=TEMPERATURE,
-            pad_token_id=tokenizer.pad_token_id,
-            eos_token_id=tokenizer.eos_token_id
-        )
-    return tokenizer.batch_decode(outputs, skip_special_tokens=True)
+def generate_gpt_text(lang: str, max_words=TEXT_MAX_LEN, max_word_range=TEXT_MAX_LEN_JUMP_RANGE, retry_limit=3):
+    max_words += random.randint(-max_word_range, max_word_range)
+    for _ in range(retry_limit):
+        prompt = f"Write one short, simple, natural sentence in {lang} about daily life:"
+        input_enc = gpt_tokenizer(prompt, return_tensors="pt", padding=True)
+        input_ids = input_enc.input_ids.to(DEVICE)
+        attention_mask = input_enc.attention_mask.to(DEVICE)
+        with torch.no_grad():
+            output_ids = gpt_model.generate(
+                input_ids,
+                attention_mask=attention_mask,
+                max_length=max_words + len(input_ids[0]),
+                do_sample=True,
+                top_k=TOP_K,
+                top_p=TOP_P,
+                temperature=TEMPERATURE,
+                pad_token_id=gpt_tokenizer.pad_token_id,
+                eos_token_id=gpt_tokenizer.eos_token_id,
+                repetition_penalty=REP_PENALTY
+            )
+        text = gpt_tokenizer.decode(output_ids[0], skip_special_tokens=True).replace(prompt, "").strip()
+        for p in ".!?":
+            if p in text:
+                text = text.split(p)[0].strip()
+        if len(text.split()) > 1:
+            return text
+    return f"A short sentence in {lang}."
 
 
-# ------------------- SENSITIVE DETECTION -------------------
-SENSITIVE_KEYWORDS = ["password", "ssn", "credit card", "secret", "private", "token"]
-
-
-def detect_sensitive(texts):
-    embeddings = model_emb.encode(texts, convert_to_tensor=True)
-    flags = []
-    for t, emb in zip(texts, embeddings):
-        keyword_score = sum(kw in t.lower() for kw in SENSITIVE_KEYWORDS)
-        flags.append(keyword_score > 0)
-    return flags
-
-
-# ------------------- TRAINING SIMULATION -------------------
-def train_cycle():
-    log("Starting training cycle...")
-    losses = []
-    for epoch in range(EPOCHS):
-        batch_texts = generate_batch(BATCH_SIZE)
-        sensitive_flags = detect_sensitive(batch_texts)
-        loss = random.uniform(0.1, 0.5) / (epoch + 1)
-        losses.append(loss)
-
-        dataset.extend([{"text": t, "sensitive": f} for t, f in zip(batch_texts, sensitive_flags)])
-        dataset[:] = check_ram_and_offload(dataset)
-
-        log(f"Epoch {epoch + 1}/{EPOCHS} | Loss: {loss:.4f} | Batch: {BATCH_SIZE} | Sensitive: {sum(sensitive_flags)}/{len(batch_texts)} | Dataset: {len(dataset)}")
-
-        if epoch > 2 and abs(losses[-1] - losses[-2]) < 1e-3:
-            log("Loss converged. Stopping early.", color=33)
+# ---------------- DATASET GENERATION ----------------
+def generate_dataset(num_samples=DATASET_SIZE):
+    dataset, labels = [], []
+    log(f"Generating {num_samples} samples using GPT-Neo + Faker...")
+    for _ in tqdm(range(num_samples)):
+        if STOP_TRAINING:
             break
-    save_dataset(dataset)
-    return losses
+        sensitive = random.random() < SENSITIVE_PROB
+        text = generate_sensitive_text() if sensitive else generate_gpt_text(random.choice(MULTI_LANGUAGES))
+        dataset.append(text)
+        labels.append(int(sensitive))
+    return dataset, labels
 
 
-# ------------------- MAIN -------------------
+# ---------------- EMBEDDINGS ----------------
+def offload_embeddings(batch_embeddings, batch_labels, idx):
+    path = f"{EMBED_CACHE_DIR}/batch_{idx}.pt"
+    torch.save({'embeddings': batch_embeddings.cpu(), 'labels': batch_labels.cpu()}, path)
+
+
+def generate_embeddings(texts, labels, tokenizer, batch_size=64):
+    bert = BertModel.from_pretrained('bert-base-uncased').to('cpu')
+    bert.eval()
+    batch_embeddings, batch_labels, batch_idx = [], [], 0
+    for i in tqdm(range(0, len(texts), batch_size)):
+        if STOP_TRAINING:
+            break
+        batch_texts = texts[i:i + batch_size]
+        batch_lbls = labels[i:i + batch_size]
+        encoded = tokenizer(batch_texts, padding='max_length', truncation=True,
+                            max_length=TEXT_MAX_LEN, return_tensors='pt')
+        with torch.no_grad():
+            emb = bert(input_ids=encoded['input_ids'], attention_mask=encoded['attention_mask']).pooler_output
+        batch_embeddings.append(emb)
+        batch_labels.append(torch.tensor(batch_lbls, dtype=torch.float32).unsqueeze(1))
+
+        if psutil.virtual_memory().percent / 100 > RAM_THRESHOLD:
+            offload_embeddings(torch.cat(batch_embeddings, dim=0), torch.cat(batch_labels, dim=0), batch_idx)
+            batch_embeddings, batch_labels = [], []
+            batch_idx += 1
+
+    if batch_embeddings:
+        offload_embeddings(torch.cat(batch_embeddings, dim=0), torch.cat(batch_labels, dim=0), batch_idx)
+
+
+# ---------------- DATASET CLASS ----------------
+class EmbeddingDataset(Dataset):
+    def __init__(self, embed_cache_dir):
+        self.files = sorted(os.listdir(embed_cache_dir))
+        self.embed_cache_dir = embed_cache_dir
+        self.current_batch_idx = -1
+        self.current_batch = None
+        self.cum_sizes = []
+        total = 0
+        for f in self.files:
+            data = torch.load(os.path.join(embed_cache_dir, f))
+            total += data['embeddings'].shape[0]
+            self.cum_sizes.append(total)
+
+    def __len__(self):
+        return self.cum_sizes[-1]
+
+    def _load_batch(self, idx):
+        path = os.path.join(self.embed_cache_dir, self.files[idx])
+        self.current_batch = torch.load(path)
+        self.current_batch_idx = idx
+
+    def __getitem__(self, idx):
+        for batch_idx, cum in enumerate(self.cum_sizes):
+            if idx < cum:
+                if batch_idx != self.current_batch_idx:
+                    self._load_batch(batch_idx)
+                rel_idx = idx if batch_idx == 0 else idx - self.cum_sizes[batch_idx - 1]
+                return self.current_batch['embeddings'][rel_idx], self.current_batch['labels'][rel_idx]
+        raise IndexError("Index out of range")
+
+
+# ---------------- MODEL ----------------
+class SimpleNN(nn.Module):
+    def __init__(self, input_dim=768):
+        super().__init__()
+        self.fc = nn.Sequential(
+            nn.Linear(input_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        return self.fc(x)
+
+
+# ---------------- TRAINING ----------------
+def create_sampler(dataset, model):
+    losses = []
+    criterion = nn.BCELoss(reduction='none')
+    model.eval()
+    with torch.no_grad():
+        for X, y in DataLoader(dataset, batch_size=BATCH_SIZE):
+            X, y = X.to(DEVICE), y.to(DEVICE)
+            outputs = model(X)
+            batch_loss = criterion(outputs, y).cpu()
+            losses.extend(batch_loss.tolist())
+    weights = torch.tensor(losses).flatten()
+    return WeightedRandomSampler(weights, num_samples=len(weights), replacement=True)
+
+
+def train_model(model, train_loader, val_loader, max_epochs=MAX_EPOCHS):
+    criterion = nn.BCELoss()
+    optimizer = optim.Adam(model.parameters(), lr=LR)
+
+    # Jumpstarter scheduler config
+    max_lr = LR * LR_JUMP["MAX"]  # jump back factor
+    min_lr = LR * LR_JUMP["MIN"]
+    patience_for_jump = JUMP_PATIENCE  # epochs of stagnation before LR jump
+    lr_decay_factor = LR_DECAY  # decay LR if improving slightly
+    best_val_loss = BEST_VAL_LOSS
+    patience_counter = COUNTER["PATIENCE"]
+    jump_counter = COUNTER["JUMP"]
+
+    history = {"train_loss": [], "val_loss": [], "accuracy": [], "precision": [], "recall": [], "f1": []}
+    scaler = torch.cuda.amp.GradScaler(enabled=(DEVICE == "cuda"))
+
+    for epoch in range(max_epochs):
+        if STOP_TRAINING:
+            break
+
+        log(f"Epoch {epoch + 1}/{max_epochs}")
+        model.train()
+        epoch_loss, all_preds, all_labels = 0, [], []
+
+        # --- Training Loop ---
+        for X, y in tqdm(train_loader):
+            X, y = X.to(DEVICE), y.to(DEVICE)
+            optimizer.zero_grad()
+            with torch.cuda.amp.autocast(enabled=(DEVICE == "cuda")):
+                outputs = model(X)
+                loss = criterion(outputs, y)
+            if DEVICE == "cuda":
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
+                optimizer.step()
+            epoch_loss += loss.item()
+            all_preds.extend((outputs > 0.5).cpu().numpy())
+            all_labels.extend(y.cpu().numpy())
+
+        # --- Metrics ---
+        acc = accuracy_score(all_labels, all_preds)
+        history["train_loss"].append(epoch_loss / len(train_loader))
+        history["accuracy"].append(acc)
+
+        # --- Validation Loop ---
+        model.eval()
+        val_loss, val_preds, val_labels_list = 0, [], []
+        with torch.no_grad():
+            for X, y in val_loader:
+                X, y = X.to(DEVICE), y.to(DEVICE)
+                outputs = model(X)
+                loss = criterion(outputs, y)
+                val_loss += loss.item()
+                val_preds.extend((outputs > 0.5).cpu().numpy())
+                val_labels_list.extend(y.cpu().numpy())
+        val_loss /= len(val_loader)
+        val_acc = accuracy_score(val_labels_list, val_preds)
+        val_f1 = f1_score(val_labels_list, val_preds, zero_division=0)
+        history["val_loss"].append(val_loss)
+        history["f1"].append(val_f1)
+
+        # --- Jumpstarter LR logic ---
+        if val_loss < best_val_loss:  # improvement
+            best_val_loss = val_loss
+            patience_counter = 0
+            # slight decay for next epoch
+            for g in optimizer.param_groups:
+                g['lr'] = max(g['lr'] * lr_decay_factor, min_lr)
+        else:
+            patience_counter += 1
+            if patience_counter >= patience_for_jump:
+                jump_counter += 1
+                log(f"Validation stalled. Jumping LR (jump #{jump_counter})!")
+                for g in optimizer.param_groups:
+                    g['lr'] = min(g['lr'] * 3, max_lr)  # jump back to higher LR
+                patience_counter = 0  # reset patience
+
+        log(f"Train Loss: {epoch_loss / len(train_loader):.4f} | Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f} | F1: {val_f1:.4f} | LR: {optimizer.param_groups[0]['lr']:.6f}")
+
+        # --- Early Stopping ---
+        if val_loss > best_val_loss:
+            patience_counter += 1
+            if patience_counter >= EARLY_STOPPING_PATIENCE and not AUTO_CONTINUE:
+                log("Early stopping triggered.")
+                break
+
+        # --- Save model checkpoint ---
+        round_dir = f"{CACHE_DIR}/round_{MODEL_ROUND}"
+        os.makedirs(round_dir, exist_ok=True)
+        model_path = f"{round_dir}/{MODEL_NAME}_round{MODEL_ROUND}.pth"
+        torch.save(model.state_dict(), model_path)
+
+    return history
+
+
+# ---------------- PLOTTING ----------------
+def plot_training(history):
+    plt.figure(figsize=(10, 5))
+    plt.plot(history["train_loss"], label="Train Loss")
+    plt.plot(history["val_loss"], label="Val Loss")
+    plt.plot(history["accuracy"], label="Accuracy")
+    plt.plot(history["f1"], label="F1 Score")
+    plt.xlabel("Epochs")
+    plt.ylabel("Value")
+    plt.legend()
+    plt.title(f"Training Round {MODEL_ROUND}")
+    plt.savefig(f"{CACHE_DIR}/round_{MODEL_ROUND}/training_plot.png")
+    plt.close()
+    log("Saved training plot.")
+
+
+# ---------------- MAIN ----------------
 def main():
-    log("Pipeline started.")
-    total_cycles = 0
-    while len(dataset) < MAX_DATASET_SIZE:
-        print(f"=== Training Cycle {total_cycles + 1} ===")
-        losses = train_cycle()
-        plot_training(losses, total_cycles + 1)
-        total_cycles += 1
-    log("Pipeline completed.", color=32)
+    global STOP_TRAINING
+    log("Starting advanced self-training sensitive data classifier...")
+
+    # Generate dataset
+    texts, labels = generate_dataset(DATASET_SIZE)
+    split = int(len(texts) * TRAIN_VAL_SPLIT)
+    train_texts, train_labels = texts[:split], labels[:split]
+    val_texts, val_labels = texts[split:], labels[split:]
+    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+
+    log("Generating train embeddings...")
+    generate_embeddings(train_texts, train_labels, tokenizer)
+    log("Generating validation embeddings...")
+    generate_embeddings(val_texts, val_labels, tokenizer)
+
+    train_dataset = EmbeddingDataset(EMBED_CACHE_DIR)
+    val_dataset = EmbeddingDataset(EMBED_CACHE_DIR)
+
+    model_dummy = SimpleNN().to(DEVICE)
+    sampler = create_sampler(train_dataset, model_dummy)
+    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, sampler=sampler)
+    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
+
+    model = SimpleNN(input_dim=768).to(DEVICE)
+    history = train_model(model, train_loader, val_loader)
+    plot_training(history)
+
+    # Save history
+    with open(f"{CACHE_DIR}/round_{MODEL_ROUND}/training_history.json", "w") as f:
+        json.dump(history, f)
+    log("Training complete. All data, plots, and model saved.")
 
 
 if __name__ == "__main__":
