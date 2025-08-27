@@ -1,5 +1,4 @@
 import json
-import re
 import signal
 import sys
 import time
@@ -56,8 +55,8 @@ print("Setup complete.\n")
 # ------------------- Signal Handling -------------------
 def save_and_exit():
     print(f"\nSaving {len(generated_data)} samples to {OUTPUT_FILE}...")
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-        json.dump(generated_data, f, indent=2)
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as f_:
+        json.dump(generated_data, f_, indent=2)
     print("Done.")
     sys.exit(0)
 
@@ -73,26 +72,15 @@ def clean_output(text_, prompt_):
     return cleaned_.strip()
 
 
-def plausible_sensitive(text_):
-    patterns = [
-        r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
-        r"(?i)api[_-]?key\s*[:=]\s*['\"]?[A-Za-z0-9\-]{4,}['\"]?",
-        r"(?i)password\s*[:=]\s*['\"][^'\"]{4,}['\"]",
-        r"(?i)token\s*[:=]\s*['\"]?[A-Za-z0-9\-]{4,}['\"]?",
-    ]
-    return any(re.search(p, text_) for p in patterns)
-
-
-def is_valid_output(text_, prompt_, label_):
+def is_valid_output(text_, prompt_):
     cleaned_ = clean_output(text_, prompt_)
     if len(cleaned_) < 10:
-        return False
-    if label_ == "sensitive" and not plausible_sensitive(cleaned_):
         return False
     return True
 
 
 # ------------------- Generation -------------------
+# ------------------- Generation with Auto Flush -------------------
 try:
     print("Starting generation...")
     start_time = time.time()
@@ -100,7 +88,8 @@ try:
     prompts_cycle = cycle([(p, "sensitive") for p in SENSITIVE_PROMPTS] +
                           [(p, "non-sensitive") for p in NON_SENSITIVE_PROMPTS])
 
-    # Initial progress bar print (shows 0 progress)
+    FLUSH_THRESHOLD = int(NUM_SAMPLES * 0.9)  # 90% of total
+
     def print_progress_bar(done, total, start_time_):
         elapsed = time.time() - start_time_
         avg_time = elapsed / done if done else 0
@@ -117,7 +106,8 @@ try:
 
     while len(generated_data) < NUM_SAMPLES:
         batch_prompts, batch_labels = zip(
-            *[next(prompts_cycle) for _ in range(min(BATCH_SIZE, NUM_SAMPLES - len(generated_data)))])
+            *[next(prompts_cycle) for _ in range(min(BATCH_SIZE, NUM_SAMPLES - len(generated_data)))]
+        )
         inputs = tokenizer(list(batch_prompts), return_tensors="pt", padding=True, truncation=True).to(DEVICE,
                                                                                                        non_blocking=True)
 
@@ -133,17 +123,20 @@ try:
         decoded = tokenizer.batch_decode(outputs, skip_special_tokens=True)
         for text, prompt, label in zip(decoded, batch_prompts, batch_labels):
             cleaned = clean_output(text, prompt)
-            if cleaned not in seen_texts and is_valid_output(cleaned, prompt, label):
+            if cleaned not in seen_texts and is_valid_output(cleaned, prompt):
                 generated_data.append({"label": label, "text": cleaned})
                 seen_texts.add(cleaned)
 
-        # Update progress bar after each batch
+        # Flush to file if we reach 90% of samples
+        if len(generated_data) >= FLUSH_THRESHOLD:
+            with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+                json.dump(generated_data, f, indent=2)
+
         print_progress_bar(len(generated_data), NUM_SAMPLES, start_time)
 
 except Exception as e:
     print(f"\nError: {e}")
 finally:
-    # Print final progress bar before saving
     print_progress_bar(len(generated_data), NUM_SAMPLES, start_time)
-    print()  # Move to next line after progress bar
+    print()
     save_and_exit()
