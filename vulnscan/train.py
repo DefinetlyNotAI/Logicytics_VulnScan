@@ -1,4 +1,5 @@
 import os
+import sys
 
 import torch
 import torch.nn as nn
@@ -180,8 +181,7 @@ def train_model(model: SimpleNN, train_loader: DataLoader, val_loader: DataLoade
             model_path = f"{round_dir}/{cfg.MODEL_NAME}_round{cfg.MODEL_ROUND}.pth"
             torch.save(model.state_dict(), model_path)
         except KeyboardInterrupt:
-            log("Training interrupted by user early. Saving premature model.")
             torch.save(model.state_dict(), model_path)
-            break
+            sys.exit("Training interrupted by user early. Saving premature model and quitting.")
 
     return history

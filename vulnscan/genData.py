@@ -1,4 +1,5 @@
 import random
+import sys
 
 import psutil
 import torch
@@ -75,8 +76,7 @@ def generate_dataset(gpt_tokenizer: PreTrainedTokenizerFast, gpt_model: PreTrain
             dataset.append(text)
             labels.append(int(sensitive))
         except KeyboardInterrupt:
-            log(f"Dataset generation interrupted by user early. Premature dataset exit.")
-            break
+            sys.exit(f"\nDataset generation interrupted by user early. Premature dataset exit.")
     return dataset, labels
 
 
@@ -107,8 +107,7 @@ def generate_embeddings(embed_model: SentenceTransformer, texts: list[str], labe
                 batch_embeddings, batch_labels = [], []
                 batch_idx += 1
         except KeyboardInterrupt:
-            log(f"Embedding generation interrupted by user early. Premature generation exit, continuing.")
-            break
+            sys.exit(f"Embedding generation interrupted by user early. Premature generation exit.")
     # Final offload
     if batch_embeddings:
         offload_embeddings(batch_embeddings=torch.cat(tensors=batch_embeddings, dim=0),
