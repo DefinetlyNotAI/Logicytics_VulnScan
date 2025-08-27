@@ -24,9 +24,12 @@ MODEL_NAME = "Model_Sense.4n1"
 CACHE_DIR = f"cache/{MODEL_NAME}"
 os.makedirs(CACHE_DIR, exist_ok=True)
 
-# Auto-increment round based on existing folders
-existing_rounds = [int(f.split('_')[-1]) for f in os.listdir(CACHE_DIR)
-                   if f.startswith('round_') and f.split('_')[-1].isdigit()]
+# Auto-increment round based on existing folders, omitting any suffix like '-F'
+existing_rounds = [
+    int(f.split('_')[-1].split('-')[0])
+    for f in os.listdir(CACHE_DIR)
+    if f.startswith('round_') and f.split('_')[-1].split('-')[0].isdigit()
+]
 MODEL_ROUND = max(existing_rounds) + 1 if existing_rounds else 1
 
 LOG_FILE = f"{CACHE_DIR}/training.log"
@@ -37,38 +40,39 @@ os.makedirs(EMBED_CACHE_DIR, exist_ok=True)
 writer = SummaryWriter(log_dir=f"{CACHE_DIR}/round_{MODEL_ROUND}/tensorboard_logs")
 
 # Training parameters
-BATCH_SIZE = 16
-MAX_EPOCHS = 35
-EARLY_STOPPING_PATIENCE = 5
-LR = 1e-3
-LR_JUMP = {"MAX": 5, "MIN": 0.1}
-COUNTER = {"PATIENCE": 0, "JUMP": 0}
-JUMP_PATIENCE = 3
-LR_DECAY = 0.9
-BEST_VAL_LOSS = float("inf")
-AUTO_CONTINUE = False
+BATCH_SIZE: int = 16
+MAX_EPOCHS: int = 35
+EARLY_STOPPING_PATIENCE: int = 5
+LR: float = 1e-3
+LR_JUMP: dict[str, int] = {"MAX": 5, "MIN": 0.1}
+COUNTER: dict[str, int] = {"PATIENCE": 0, "JUMP": 0}
+JUMP_PATIENCE: int = 3
+LR_DECAY: float = 0.9
+BEST_VAL_LOSS: float = float("inf")
+AUTO_CONTINUE: bool = False
 
 # Dataset / data generation
-DATASET_SIZE = 10
-TEXT_MAX_LEN = 128
-TEXT_MAX_LEN_JUMP_RANGE = 10
-TRAIN_VAL_SPLIT = 0.8
-SENSITIVE_PROB = 0.3
-SENSITIVE_FIELDS = ["ssn", "credit_card", "email", "phone_number", "address", "name"]
+DATASET_SIZE: int = 100
+TEXT_MAX_LEN: int = 128
+TEXT_MAX_LEN_JUMP_RANGE: int = 10
+TRAIN_VAL_SPLIT: float = 0.8
+SENSITIVE_PROB: float = 0.3
+SENSITIVE_FIELDS: list[str] = ["ssn", "credit_card", "email", "phone_number", "address", "name"]
 
 # Language / generation
-MULTI_LANGUAGES = ["english", "spanish", "french", "dutch", "arabic", "japanese"]
-TOP_K = 30
-TOP_P = 0.9
-TEMPERATURE = 0.9
-REP_PENALTY = 1.2
+MULTI_LANGUAGES: list[str] = ["english", "spanish", "french", "dutch", "arabic", "japanese"]
+TOP_K: int = 30
+TOP_P: float = 0.9
+TEMPERATURE: float = 0.9
+REP_PENALTY: float = 1.2
+RETRY_LIMIT: int = 3
 
 # Device / system
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-RAM_THRESHOLD = 0.85
+DEVICE: str = "cuda" if torch.cuda.is_available() else "cpu"
+RAM_THRESHOLD: float = 0.85
 
 # Misc / globals
-STOP_TRAINING = False
+STOP_TRAINING: bool = False
 faker = Faker()
 
 
@@ -84,7 +88,7 @@ signal.signal(signal.SIGINT, signal_handler)
 
 
 # ---------------- LOGGING ----------------
-def log(message):
+def log(message: str):
     print(message)
     with open(LOG_FILE, "a") as f:
         f.write(f"{datetime.datetime.now()} | {message}\n")
@@ -118,7 +122,8 @@ log("Loading MiniLM for embeddings...")
 embed_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
 
-def generate_gpt_text(lang: str, max_words=TEXT_MAX_LEN, max_word_range=TEXT_MAX_LEN_JUMP_RANGE, retry_limit=3):
+def generate_gpt_text(lang: str, max_words: int = TEXT_MAX_LEN, max_word_range: int = TEXT_MAX_LEN_JUMP_RANGE,
+                      retry_limit: int = RETRY_LIMIT):
     max_words += random.randint(-max_word_range, max_word_range)
     for _ in range(retry_limit):
         prompt = f"Write one short, simple, natural sentence in {lang} about daily life:"
@@ -148,7 +153,7 @@ def generate_gpt_text(lang: str, max_words=TEXT_MAX_LEN, max_word_range=TEXT_MAX
 
 
 # ---------------- DATASET GENERATION ----------------
-def generate_dataset(num_samples=DATASET_SIZE):
+def generate_dataset(num_samples: int = DATASET_SIZE):
     dataset, labels = [], []
     log(f"Generating {num_samples} samples using GPT-Neo + Faker...")
     for _ in tqdm(range(num_samples)):
@@ -162,12 +167,13 @@ def generate_dataset(num_samples=DATASET_SIZE):
 
 
 # ---------------- EMBEDDINGS ----------------
-def offload_embeddings(batch_embeddings, batch_labels, idx):
+def offload_embeddings(batch_embeddings: torch.Tensor, batch_labels: torch.Tensor, idx: int):
     path = f"{EMBED_CACHE_DIR}/batch_{idx}.pt"
     torch.save({'embeddings': batch_embeddings.cpu(), 'labels': batch_labels.cpu()}, path)
 
 
-def generate_embeddings(texts, labels, tokenizer, batch_size=64):
+def generate_embeddings(texts: list[str], labels: list[int | float], tokenizer: BertTokenizer,
+                        batch_size: int = BATCH_SIZE):
     bert = BertModel.from_pretrained('bert-base-uncased').to('cpu')
     bert.eval()
     batch_embeddings, batch_labels, batch_idx = [], [], 0
@@ -234,7 +240,6 @@ class SimpleNN(nn.Module):
             nn.Linear(256, 64),
             nn.ReLU(),
             nn.Linear(64, 1),
-            nn.Sigmoid()
         )
 
     def forward(self, x):
@@ -242,35 +247,43 @@ class SimpleNN(nn.Module):
 
 
 # ---------------- TRAINING ----------------
-def create_sampler(dataset, model):
+def create_sampler(dataset: EmbeddingDataset, model: SimpleNN):
     losses = []
-    criterion = nn.BCELoss(reduction='none')
+    criterion = nn.BCEWithLogitsLoss(reduction='none')
+
     model.eval()
     with torch.no_grad():
         for X, y in DataLoader(dataset, batch_size=BATCH_SIZE):
             X, y = X.to(DEVICE), y.to(DEVICE)
             outputs = model(X)
-            batch_loss = criterion(outputs, y).cpu()
-            losses.extend(batch_loss.tolist())
-    weights = torch.tensor(losses).flatten()
+            batch_loss = criterion(outputs, y)
+            losses.extend(batch_loss.view(-1).tolist())  # flatten before extending
+
+    weights = torch.tensor(losses).float()
     return WeightedRandomSampler(weights, num_samples=len(weights), replacement=True)
 
 
-def train_model(model, train_loader, val_loader, max_epochs=MAX_EPOCHS):
-    criterion = nn.BCELoss()
+def train_model(model: SimpleNN, train_loader: DataLoader, val_loader: DataLoader, max_epochs: int = MAX_EPOCHS):
+    criterion = nn.BCEWithLogitsLoss()
     optimizer = optim.Adam(model.parameters(), lr=LR)
 
     # Jumpstarter scheduler config
-    max_lr = LR * LR_JUMP["MAX"]  # jump back factor
+    max_lr = LR * LR_JUMP["MAX"]
     min_lr = LR * LR_JUMP["MIN"]
-    patience_for_jump = JUMP_PATIENCE  # epochs of stagnation before LR jump
-    lr_decay_factor = LR_DECAY  # decay LR if improving slightly
+    patience_for_jump = JUMP_PATIENCE
+    lr_decay_factor = LR_DECAY
     best_val_loss = BEST_VAL_LOSS
     patience_counter = COUNTER["PATIENCE"]
     jump_counter = COUNTER["JUMP"]
 
-    history = {"train_loss": [], "val_loss": [], "accuracy": [], "precision": [], "recall": [], "f1": []}
-    scaler = torch.cuda.amp.GradScaler(enabled=(DEVICE == "cuda"))
+    history = {
+        "train_loss": [], "val_loss": [],
+        "accuracy": [], "precision": [],
+        "recall": [], "f1": []
+    }
+
+    # Use the new amp API
+    scaler = torch.amp.GradScaler(enabled=(DEVICE == "cuda"))
 
     for epoch in range(max_epochs):
         if STOP_TRAINING:
@@ -284,9 +297,11 @@ def train_model(model, train_loader, val_loader, max_epochs=MAX_EPOCHS):
         for X, y in tqdm(train_loader):
             X, y = X.to(DEVICE), y.to(DEVICE)
             optimizer.zero_grad()
-            with torch.cuda.amp.autocast(enabled=(DEVICE == "cuda")):
+
+            with torch.amp.autocast(device_type="cuda" if DEVICE == "cuda" else "cpu", enabled=(DEVICE == "cuda")):
                 outputs = model(X)
                 loss = criterion(outputs, y)
+
             if DEVICE == "cuda":
                 scaler.scale(loss).backward()
                 scaler.step(optimizer)
@@ -294,8 +309,9 @@ def train_model(model, train_loader, val_loader, max_epochs=MAX_EPOCHS):
             else:
                 loss.backward()
                 optimizer.step()
+
             epoch_loss += loss.item()
-            all_preds.extend((outputs > 0.5).cpu().numpy())
+            all_preds.extend((torch.sigmoid(outputs) > 0.5).cpu().numpy())
             all_labels.extend(y.cpu().numpy())
 
         # --- Metrics ---
@@ -312,8 +328,9 @@ def train_model(model, train_loader, val_loader, max_epochs=MAX_EPOCHS):
                 outputs = model(X)
                 loss = criterion(outputs, y)
                 val_loss += loss.item()
-                val_preds.extend((outputs > 0.5).cpu().numpy())
+                val_preds.extend((torch.sigmoid(outputs) > 0.5).cpu().numpy())
                 val_labels_list.extend(y.cpu().numpy())
+
         val_loss /= len(val_loader)
         val_acc = accuracy_score(val_labels_list, val_preds)
         val_f1 = f1_score(val_labels_list, val_preds, zero_division=0)
@@ -321,10 +338,9 @@ def train_model(model, train_loader, val_loader, max_epochs=MAX_EPOCHS):
         history["f1"].append(val_f1)
 
         # --- Jumpstarter LR logic ---
-        if val_loss < best_val_loss:  # improvement
+        if val_loss < best_val_loss:
             best_val_loss = val_loss
             patience_counter = 0
-            # slight decay for next epoch
             for g in optimizer.param_groups:
                 g['lr'] = max(g['lr'] * lr_decay_factor, min_lr)
         else:
@@ -333,10 +349,12 @@ def train_model(model, train_loader, val_loader, max_epochs=MAX_EPOCHS):
                 jump_counter += 1
                 log(f"Validation stalled. Jumping LR (jump #{jump_counter})!")
                 for g in optimizer.param_groups:
-                    g['lr'] = min(g['lr'] * 3, max_lr)  # jump back to higher LR
-                patience_counter = 0  # reset patience
+                    g['lr'] = min(g['lr'] * 3, max_lr)
+                patience_counter = 0
 
-        log(f"Train Loss: {epoch_loss / len(train_loader):.4f} | Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f} | F1: {val_f1:.4f} | LR: {optimizer.param_groups[0]['lr']:.6f}")
+        log(f"Train Loss: {epoch_loss / len(train_loader):.4f} | "
+            f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f} | "
+            f"F1: {val_f1:.4f} | LR: {optimizer.param_groups[0]['lr']:.6f}")
 
         # --- Early Stopping ---
         if val_loss > best_val_loss:
@@ -345,7 +363,7 @@ def train_model(model, train_loader, val_loader, max_epochs=MAX_EPOCHS):
                 log("Early stopping triggered.")
                 break
 
-        # --- Save model checkpoint ---
+        # --- Save checkpoint ---
         round_dir = f"{CACHE_DIR}/round_{MODEL_ROUND}"
         os.makedirs(round_dir, exist_ok=True)
         model_path = f"{round_dir}/{MODEL_NAME}_round{MODEL_ROUND}.pth"
@@ -355,7 +373,7 @@ def train_model(model, train_loader, val_loader, max_epochs=MAX_EPOCHS):
 
 
 # ---------------- PLOTTING ----------------
-def plot_training(history):
+def plot_training(history: dict):
     plt.figure(figsize=(10, 5))
     plt.plot(history["train_loss"], label="Train Loss")
     plt.plot(history["val_loss"], label="Val Loss")
