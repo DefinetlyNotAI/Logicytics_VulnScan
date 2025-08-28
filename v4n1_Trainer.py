@@ -22,14 +22,20 @@ def main():
 
     # Generate dataset
     texts, labels = generate.dataset(gpt_tokenizer=gpt_tokenizer, gpt_model=gpt_model)
-    split = int(len(texts) * cfg.TRAIN_VAL_SPLIT)
-    train_texts, train_labels = texts[:split], labels[:split]
-    val_texts, val_labels = texts[split:], labels[split:]
 
+    train_split = int(len(texts) * cfg.TRAIN_VAL_SPLIT)
+    val_split = int(len(texts) * cfg.VAL_SPLIT)
+
+    train_texts, train_labels = texts[:train_split], labels[:train_split]
+    val_texts, val_labels = texts[train_split:val_split], labels[train_split:val_split]
+    test_texts, test_labels = texts[val_split:], labels[val_split:]
+
+    log(message="Generating test embeddings...", cfg=cfg)
+    generate.embeddings(embed_model=embed_model, texts=test_texts, labels=test_labels, split="test")
     log(message="Generating train embeddings...", cfg=cfg)
-    generate.embeddings(embed_model=embed_model, texts=train_texts, labels=train_labels)
+    generate.embeddings(embed_model=embed_model, texts=train_texts, labels=train_labels, split="train")
     log(message="Generating validation embeddings...", cfg=cfg)
-    generate.embeddings(embed_model=embed_model, texts=val_texts, labels=val_labels)
+    generate.embeddings(embed_model=embed_model, texts=val_texts, labels=val_labels, split="validation")
 
     train_dataset = EmbeddingDataset(cfg.EMBED_CACHE_DIR)
     val_dataset = EmbeddingDataset(cfg.EMBED_CACHE_DIR)
@@ -72,6 +78,7 @@ if __name__ == "__main__":
         "DATASET_SIZE": 10000,  # Number of samples to generate for training
         "TEXT_MAX_LEN": 128,  # Maximum length of generated text samples
         "TEXT_MAX_LEN_JUMP_RANGE": 10,  # Range for random variation in text length
+        "VAL_SPLIT": 0.85,  # Fraction of dataset used for training + validation (rest for testing)
         "TRAIN_VAL_SPLIT": 0.8,  # Fraction of dataset used for training (rest for validation)
         "SENSITIVE_PROB": 0.5,  # Probability that a sample contains sensitive data
 

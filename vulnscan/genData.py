@@ -87,11 +87,13 @@ class DataGen:
         return dataset, labels
 
     # ---------------- EMBEDDINGS ----------------
-    def offload_embeddings(self, batch_embeddings: torch.Tensor, batch_labels: torch.Tensor, idx: int):
-        path = f"{self.cfg.EMBED_CACHE_DIR}/batch_{idx}.pt"
-        torch.save({'embeddings': batch_embeddings.cpu(), 'labels': batch_labels.cpu()}, path)
+    def offload_embeddings(self, batch_embeddings: torch.Tensor, batch_labels: torch.Tensor, idx: int, split: str):
+        torch.save({
+            "embeddings": batch_embeddings.cpu(),
+            "labels": batch_labels.cpu()
+        }, f"{self.cfg.EMBED_CACHE_DIR}/{split}_{idx}.pt")
 
-    def embeddings(self, embed_model: SentenceTransformer, texts: list[str], labels: list[int | float]):
+    def embeddings(self, embed_model: SentenceTransformer, texts: list[str], labels: list[int | float], split: str):
         batch_size = self.cfg.BATCH_SIZE
         batch_embeddings, batch_labels, batch_idx = [], [], 0
         for i in tqdm(range(0, len(texts), batch_size)):
@@ -107,13 +109,27 @@ class DataGen:
 
                 # Offload if memory usage too high
                 if psutil.virtual_memory().percent / 100 > self.cfg.RAM_THRESHOLD:
-                    self.offload_embeddings(batch_embeddings=torch.cat(tensors=batch_embeddings, dim=0),
-                                            batch_labels=torch.cat(tensors=batch_labels, dim=0), idx=batch_idx)
+                    self.offload_embeddings(
+                        batch_embeddings=torch.cat(tensors=batch_embeddings, dim=0),
+                        batch_labels=torch.cat(batch_labels, dim=0),
+                        idx=batch_idx,
+                        split=split
+                    )
                     batch_embeddings, batch_labels = [], []
                     batch_idx += 1
             except KeyboardInterrupt:
+                self.offload_embeddings(
+                    batch_embeddings=torch.cat(tensors=batch_embeddings, dim=0),
+                    batch_labels=torch.cat(batch_labels, dim=0),
+                    idx=batch_idx,
+                    split=split
+                )
                 sys.exit(f"Embedding generation interrupted by user early. Premature generation exit.")
         # Final offload
         if batch_embeddings:
-            self.offload_embeddings(batch_embeddings=torch.cat(tensors=batch_embeddings, dim=0),
-                                    batch_labels=torch.cat(batch_labels, dim=0), idx=batch_idx)
+            self.offload_embeddings(
+                batch_embeddings=torch.cat(tensors=batch_embeddings, dim=0),
+                batch_labels=torch.cat(batch_labels, dim=0),
+                idx=batch_idx,
+                split=split
+            )

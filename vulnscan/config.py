@@ -34,7 +34,8 @@ class TrainingConfig:
         self.DATASET_SIZE: int = 100
         self.TEXT_MAX_LEN: int = 128
         self.TEXT_MAX_LEN_JUMP_RANGE: int = 10
-        self.TRAIN_VAL_SPLIT: float = 0.8
+        self.VAL_SPLIT: float = 0.85
+        self.TRAIN_VAL_SPLIT: float = 0.7
         self.SENSITIVE_PROB: float = 0.3
         self.SENSITIVE_FIELDS: list[str] = ["ssn", "credit_card", "email", "phone_number", "address", "name"]
 
