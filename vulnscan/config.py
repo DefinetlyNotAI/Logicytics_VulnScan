@@ -14,6 +14,7 @@ class TrainingConfig:
 
         self.LOG_FILE = f"{self.CACHE_DIR}/training.log"
         self.EMBED_CACHE_DIR = f"{self.CACHE_DIR}/round_{self.MODEL_ROUND}/embeddings"
+        self.DATA_CACHE_DIR = f"{self.CACHE_DIR}/dataset"
 
         # TensorBoard
         self.writer = SummaryWriter(log_dir=f"{self.CACHE_DIR}/round_{self.MODEL_ROUND}/tensorboard_logs")
@@ -32,7 +33,7 @@ class TrainingConfig:
         self.AUTO_CONTINUE: bool = False
 
         # Dataset / data generation
-        self.DATASET_SIZE: int = 100
+        self.DATASET_SIZE: int = 1000
         self.TEXT_MAX_LEN: int = 128
         self.TEXT_MAX_LEN_JUMP_RANGE: int = 10
         self.VAL_SPLIT: float = 0.85
@@ -55,6 +56,7 @@ class TrainingConfig:
         # Create necessary folders
         os.makedirs(self.CACHE_DIR, exist_ok=True)
         os.makedirs(self.EMBED_CACHE_DIR, exist_ok=True)
+        os.makedirs(self.DATA_CACHE_DIR, exist_ok=True)
 
     @staticmethod
     def __get_existing_rounds(cache_dir: str) -> list[int]:

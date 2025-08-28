@@ -84,6 +84,7 @@ class DataGen:
                 labels.append(int(sensitive))
             except KeyboardInterrupt:
                 sys.exit(f"\nDataset generation interrupted by user early. Premature dataset exit.")
+        torch.save({"texts": dataset, "labels": labels}, f"{self.cfg.DATA_CACHE_DIR}/dataset_{self.cfg.DATASET_SIZE}.pt")
         return dataset, labels
 
     # ---------------- EMBEDDINGS ----------------

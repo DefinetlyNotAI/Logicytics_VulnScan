@@ -1,5 +1,7 @@
 import json
+import os
 
+import torch
 from sentence_transformers import SentenceTransformer
 from torch.utils.data import DataLoader
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -22,7 +24,13 @@ def main():
     generate = DataGen(cfg=cfg)
 
     # Generate dataset
-    texts, labels = generate.dataset(gpt_tokenizer=gpt_tokenizer, gpt_model=gpt_model)
+    dataset_path = f"{cfg.DATA_CACHE_DIR}/dataset_{cfg.DATASET_SIZE}.pt"
+    if os.path.exists(dataset_path):
+        data = torch.load(dataset_path)
+        texts, labels = data["texts"], data["labels"]
+    else:
+        texts, labels = generate.dataset(gpt_tokenizer=gpt_tokenizer, gpt_model=gpt_model)
+        torch.save({"texts": texts, "labels": labels}, dataset_path)
 
     train_split = int(len(texts) * cfg.TRAIN_VAL_SPLIT)
     val_split = int(len(texts) * cfg.VAL_SPLIT)
