@@ -14,6 +14,7 @@ def main():
     gpt_model = AutoModelForCausalLM.from_pretrained("EleutherAI/gpt-neo-1.3B").to(cfg.DEVICE)
     if gpt_tokenizer.pad_token is None:
         gpt_tokenizer.pad_token = gpt_tokenizer.eos_token
+
     log(message="Loading MiniLM for embeddings...", cfg=cfg)
     embed_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
@@ -39,21 +40,20 @@ def main():
 
     train_dataset = EmbeddingDataset(cfg.EMBED_CACHE_DIR)
     val_dataset = EmbeddingDataset(cfg.EMBED_CACHE_DIR)
-
-    train = Train(cfg=cfg)
-
-    model_dummy = SimpleNN(input_dim=384).to(cfg.DEVICE)
-    sampler = train.create_sampler(dataset=train_dataset, model=model_dummy)
-    train_loader = DataLoader(dataset=train_dataset, batch_size=cfg.BATCH_SIZE, sampler=sampler)
     val_loader = DataLoader(dataset=val_dataset, batch_size=cfg.BATCH_SIZE, shuffle=False)
 
+    train = Train(cfg=cfg)
     model = SimpleNN(input_dim=384).to(cfg.DEVICE)
-    history = train.model(model=model, train_loader=train_loader, val_loader=val_loader)
-    plot_training(cfg=cfg, history=history)
 
-    # Save history
-    with open(f"{cfg.CACHE_DIR}/round_{cfg.MODEL_ROUND}/training_history.json", "w") as f:
-        json.dump(history, f)
+    # Run training (handles TRAIN_LOOPS internally)
+    history_loops = train.model(model=model, train_dataset=train_dataset, val_loader=val_loader)
+
+    # Plot + save history for each loop
+    for i, history in enumerate(history_loops):
+        plot_training(cfg=cfg, history_loops=history_loops)
+        with open(f"{cfg.CACHE_DIR}/round_{cfg.MODEL_ROUND}/training_history_loop{i+1}.json", "w") as f:
+            json.dump(history, f)
+
     log(message="Training complete. All data, plots, and model saved.", cfg=cfg)
 
 
@@ -66,16 +66,17 @@ if __name__ == "__main__":
         # Training parameters
         "BATCH_SIZE": 32,  # Number of samples per training batch
         "MAX_EPOCHS": 35,  # Maximum number of training epochs
+        "TRAIN_LOOPS": 3,  # Number of training loops (full dataset passes, with improvement measures)
         "EARLY_STOPPING_PATIENCE": 5,  # Number of epochs to wait for improvement before premature stopping
         "LR": 1e-3,  # Initial learning rate
         "LR_JUMP": {"MAX": 5, "MIN": 0.1},  # Upper and lower limits for learning rate jumps
         "COUNTER": {"PATIENCE": 0, "JUMP": 0},  # Counters for early stopping patience and learning rate jumps
         "JUMP_PATIENCE": 3,  # Epochs to wait before applying a learning rate jump
         "LR_DECAY": 0.9,  # Factor to multiply learning rate after decay
-        "AUTO_CONTINUE": False,  # Whether to automatically continue training from a checkpoint
+        "AUTO_CONTINUE": False,  # Whether to automatically continue training and ignore EARLY_STOPPING_PATIENCE
 
         # Dataset / data generation
-        "DATASET_SIZE": 10000,  # Number of samples to generate for training
+        "DATASET_SIZE": 25000,  # Number of samples to generate for training (not the same as for the training rounds themselves)
         "TEXT_MAX_LEN": 128,  # Maximum length of generated text samples
         "TEXT_MAX_LEN_JUMP_RANGE": 10,  # Range for random variation in text length
         "VAL_SPLIT": 0.85,  # Fraction of dataset used for training + validation (rest for testing)

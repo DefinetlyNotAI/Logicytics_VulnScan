@@ -4,7 +4,7 @@ import sys
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from sklearn.metrics import accuracy_score, f1_score
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 from tqdm import tqdm
 
@@ -64,129 +64,159 @@ class SimpleNN(nn.Module):
 class Train:
     def __init__(self, cfg: TrainingConfig):
         self.cfg = cfg
+        self.device = cfg.DEVICE
 
+    # Compute a weighted sampler from model losses
     def create_sampler(self, dataset: EmbeddingDataset, model: SimpleNN):
         losses = []
         criterion = nn.BCEWithLogitsLoss(reduction='none')
 
         model.eval()
         with torch.no_grad():
-            for X, y in DataLoader(dataset=dataset, batch_size=self.cfg.BATCH_SIZE):
-                X, y = X.to(self.cfg.DEVICE), y.to(self.cfg.DEVICE)
+            for X, y in DataLoader(dataset, batch_size=self.cfg.BATCH_SIZE):
+                X, y = X.to(self.device), y.to(self.device)
                 outputs = model(X)
                 batch_loss = criterion(outputs, y)
                 losses.extend(batch_loss.view(-1).tolist())  # flatten before extending
 
         weights = torch.tensor(losses).float()
+        weights /= weights.sum()  # normalize
         return WeightedRandomSampler(weights=weights, num_samples=len(weights), replacement=True)
 
-    def model(self, model: SimpleNN, train_loader: DataLoader, val_loader: DataLoader):
-        max_epochs: int = self.cfg.MAX_EPOCHS
-        criterion = nn.BCEWithLogitsLoss()
-        optimizer = optim.Adam(params=model.parameters(), lr=self.cfg.LR)
+    # Train for a single epoch
+    def train_one_epoch(
+            self, model: SimpleNN, loader: DataLoader,
+            optimizer: torch.optim.Adam, criterion: nn.BCEWithLogitsLoss,
+            scaler: torch.amp.GradScaler
+    ):
+        model.train()
+        epoch_loss, all_preds, all_labels = 0, [], []
+        for X, y in loader:
+            X, y = X.to(self.device), y.to(self.device)
+            optimizer.zero_grad()
+            with torch.amp.autocast(device_type="cuda" if self.device == "cuda" else "cpu",
+                                    enabled=(self.device == "cuda")):
+                outputs = model(X)
+                loss = criterion(outputs, y)
+            if self.device == "cuda":
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
+                optimizer.step()
+            epoch_loss += loss.item()
+            all_preds.extend(torch.sigmoid(outputs).round().cpu().numpy())
+            all_labels.extend(y.cpu().numpy())
+        return epoch_loss / len(loader), all_preds, all_labels
 
-        # Jumpstarter scheduler config
-        max_lr = self.cfg.LR * self.cfg.LR_JUMP["MAX"]
-        min_lr = self.cfg.LR * self.cfg.LR_JUMP["MIN"]
-        patience_for_jump = self.cfg.JUMP_PATIENCE
-        lr_decay_factor = self.cfg.LR_DECAY
-        best_val_loss = self.cfg.BEST_VAL_LOSS
-        patience_counter = self.cfg.COUNTER["PATIENCE"]
-        jump_counter = self.cfg.COUNTER["JUMP"]
-
-        history = {
-            "train_loss": [], "val_loss": [],
-            "accuracy": [], "precision": [],
-            "recall": [], "f1": []
+    # Validate on a dataset
+    def validate(self, model: SimpleNN, loader: DataLoader, criterion: nn.BCEWithLogitsLoss):
+        model.eval()
+        val_loss, val_preds, val_labels_list = 0, [], []
+        with torch.no_grad():
+            for X, y in tqdm(loader, desc="Validating", leave=False):
+                X, y = X.to(self.device), y.to(self.device)
+                outputs = model(X)
+                loss = criterion(outputs, y)
+                val_loss += loss.item()
+                val_preds.extend(torch.sigmoid(outputs).round().cpu().numpy())
+                val_labels_list.extend(y.cpu().numpy())
+        val_loss /= len(loader)
+        metrics = {
+            "accuracy": accuracy_score(val_labels_list, val_preds),
+            "precision": precision_score(val_labels_list, val_preds, zero_division=0),
+            "recall": recall_score(val_labels_list, val_preds, zero_division=0),
+            "f1": f1_score(val_labels_list, val_preds, zero_division=0)
         }
+        return val_loss, metrics
 
-        # Use the new amp API
-        scaler = torch.amp.GradScaler(enabled=(self.cfg.DEVICE == "cuda"))
+    # Save model checkpoint
+    def save_checkpoint(self, model: SimpleNN, optimizer: torch.optim.Adam, scaler: torch.amp.GradScaler, epoch: int):
+        round_dir = f"{self.cfg.CACHE_DIR}/round_{self.cfg.MODEL_ROUND}"
+        os.makedirs(round_dir, exist_ok=True)
+        model_path = f"{round_dir}/{self.cfg.MODEL_NAME}_round{self.cfg.MODEL_ROUND}.pth"
+        torch.save({
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "scaler_state_dict": scaler.state_dict(),
+            "epoch": epoch
+        }, model_path)
+        return model_path
 
-        for epoch in range(max_epochs):
-            try:
-                log(message=f"Epoch {epoch + 1}/{max_epochs}", cfg=self.cfg)
-                model.train()
-                epoch_loss, all_preds, all_labels = 0, [], []
+    # Main training loop supporting TRAIN_LOOPS
+    def model(self, model: SimpleNN, train_dataset: EmbeddingDataset, val_loader: DataLoader):
+        history_loops = []
 
-                # --- Training Loop ---
-                for X, y in tqdm(train_loader):
-                    X, y = X.to(self.cfg.DEVICE), y.to(self.cfg.DEVICE)
-                    optimizer.zero_grad()
+        for loop in range(self.cfg.TRAIN_LOOPS):
+            log(f"Starting TRAIN_LOOP {loop + 1}/{self.cfg.TRAIN_LOOPS}", self.cfg)
 
-                    with torch.amp.autocast(device_type="cuda" if self.cfg.DEVICE == "cuda" else "cpu",
-                                            enabled=(self.cfg.DEVICE == "cuda")):
-                        outputs = model(X)
-                        loss = criterion(outputs, y)
+            # Create sampler focusing on weak spots
+            sampler = self.create_sampler(train_dataset, model)
+            train_loader = DataLoader(dataset=train_dataset, batch_size=self.cfg.BATCH_SIZE,
+                                      sampler=sampler)
 
-                    if self.cfg.DEVICE == "cuda":
-                        scaler.scale(loss).backward()
-                        scaler.step(optimizer)
-                        scaler.update()
-                    else:
-                        loss.backward()
-                        optimizer.step()
+            optimizer = optim.Adam(model.parameters(), lr=self.cfg.LR)
+            criterion = nn.BCEWithLogitsLoss()
+            scaler = torch.amp.GradScaler(enabled=(self.device == "cuda"))
 
-                    epoch_loss += loss.item()
-                    all_preds.extend((torch.sigmoid(outputs) > 0.5).cpu().numpy())
-                    all_labels.extend(y.cpu().numpy())
+            # LR Jumpstarter
+            max_lr = self.cfg.LR * self.cfg.LR_JUMP["MAX"]
+            min_lr = self.cfg.LR * self.cfg.LR_JUMP["MIN"]
+            patience_for_jump = self.cfg.JUMP_PATIENCE
+            lr_decay_factor = self.cfg.LR_DECAY
+            best_val_loss = float('inf')
+            patience_counter = 0
+            jump_counter = 0
 
-                # --- Metrics ---
-                acc = accuracy_score(y_true=all_labels, y_pred=all_preds)
-                history["train_loss"].append(epoch_loss / len(train_loader))
-                history["accuracy"].append(acc)
+            history = {
+                "train_loss": [], "val_loss": [],
+                "accuracy": [], "precision": [], "recall": [], "f1": []
+            }
 
-                # --- Validation Loop ---
-                model.eval()
-                val_loss, val_preds, val_labels_list = 0, [], []
-                with torch.no_grad():
-                    for X, y in val_loader:
-                        X, y = X.to(self.cfg.DEVICE), y.to(self.cfg.DEVICE)
-                        outputs = model(X)
-                        loss = criterion(outputs, y)
-                        val_loss += loss.item()
-                        val_preds.extend((torch.sigmoid(outputs) > 0.5).cpu().numpy())
-                        val_labels_list.extend(y.cpu().numpy())
+            for epoch in tqdm(range(self.cfg.MAX_EPOCHS), desc=f"Loop {loop+1}/{self.cfg.TRAIN_LOOPS} Epochs", leave=False):
+                try:
+                    log(message=f"Epoch {epoch + 1}/{self.cfg.MAX_EPOCHS}", cfg=self.cfg, silent=True)
+                    train_loss, train_preds, train_labels = self.train_one_epoch(
+                        model=model, loader=train_loader, optimizer=optimizer, criterion=criterion, scaler=scaler
+                    )
 
-                val_loss /= len(val_loader)
-                val_acc = accuracy_score(y_true=val_labels_list, y_pred=val_preds)
-                val_f1 = f1_score(y_true=val_labels_list, y_pred=val_preds, zero_division=0)
-                history["val_loss"].append(val_loss)
-                history["f1"].append(val_f1)
+                    val_loss, val_metrics = self.validate(model=model, loader=val_loader, criterion=criterion)
 
-                # --- Jumpstarter LR logic ---
-                if val_loss < best_val_loss:
-                    best_val_loss = val_loss
-                    patience_counter = 0
-                    for g in optimizer.param_groups:
-                        g['lr'] = max(g['lr'] * lr_decay_factor, min_lr)
-                else:
-                    patience_counter += 1
-                    if patience_counter >= patience_for_jump:
-                        jump_counter += 1
-                        log(message=f"Validation stalled. Jumping LR (jump #{jump_counter})!", cfg=self.cfg)
-                        for g in optimizer.param_groups:
-                            g['lr'] = min(g['lr'] * 3, max_lr)
+                    # LR Jumpstarter logic
+                    if val_loss < best_val_loss:
+                        best_val_loss = val_loss
                         patience_counter = 0
+                        for g in optimizer.param_groups:
+                            g['lr'] = max(g['lr'] * lr_decay_factor, min_lr)
+                    else:
+                        patience_counter += 1
+                        if patience_counter >= patience_for_jump:
+                            jump_counter += 1
+                            log(message=f"Validation stalled. Jumping LR (jump #{jump_counter})!", cfg=self.cfg, silent=True)
+                            for g in optimizer.param_groups:
+                                g['lr'] = min(g['lr'] * 3, max_lr)
+                            patience_counter = 0
 
-                log(message=f"Train Loss: {epoch_loss / len(train_loader):.4f} | "
-                    f"Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.4f} | "
-                    f"F1: {val_f1:.4f} | LR: {optimizer.param_groups[0]['lr']:.6f}", cfg=self.cfg)
+                    # Update history
+                    history["train_loss"].append(train_loss)
+                    history["val_loss"].append(val_loss)
+                    for k in ["accuracy", "precision", "recall", "f1"]:
+                        history[k].append(val_metrics[k])
 
-                # --- Early Stopping ---
-                if val_loss > best_val_loss:
-                    patience_counter += 1
+                    log(message=f"Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | "
+                        f"Val Acc: {val_metrics['accuracy']:.4f} | F1: {val_metrics['f1']:.4f} | "
+                        f"LR: {optimizer.param_groups[0]['lr']:.6f}", cfg=self.cfg, silent=True)
+
+                    # Early stopping
                     if patience_counter >= self.cfg.EARLY_STOPPING_PATIENCE and not self.cfg.AUTO_CONTINUE:
-                        log(message="Early stopping triggered due to patience threshold being reached.", cfg=self.cfg)
+                        log("Early stopping triggered.", self.cfg)
                         break
 
-                # --- Save checkpoint ---
-                round_dir = f"{self.cfg.CACHE_DIR}/round_{self.cfg.MODEL_ROUND}"
-                os.makedirs(name=round_dir, exist_ok=True)
-                model_path = f"{round_dir}/{self.cfg.MODEL_NAME}_round{self.cfg.MODEL_ROUND}.pth"
-                torch.save(model.state_dict(), model_path)
-            except KeyboardInterrupt:
-                torch.save(model.state_dict(), model_path)
-                sys.exit("Training interrupted by user early. Saving premature model and quitting.")
-
-        return history
+                    # Save checkpoint each epoch
+                    self.save_checkpoint(model, optimizer, scaler, epoch)
+                except KeyboardInterrupt:
+                    self.save_checkpoint(model, optimizer, scaler, epoch)
+                    sys.exit("\nTraining interrupted. Model saved.")
+            history_loops.append(history)
+        return history_loops

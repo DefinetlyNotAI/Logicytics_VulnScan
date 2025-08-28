@@ -7,16 +7,21 @@ from vulnscan.train import Train, SimpleNN, EmbeddingDataset
 
 
 # ---------------- PLOTTING ----------------
-def plot_training(cfg: TrainingConfig, history: dict):
-    plt.figure(figsize=(10, 5))
-    plt.plot(history["train_loss"], label="Train Loss")
-    plt.plot(history["val_loss"], label="Val Loss")
-    plt.plot(history["accuracy"], label="Accuracy")
-    plt.plot(history["f1"], label="F1 Score")
+def plot_training(cfg, history_loops: list):
+    plt.figure(figsize=(12, 6))
+
+    for i, history in enumerate(history_loops):
+        epochs = range(1, len(history["train_loss"]) + 1)
+        plt.plot(epochs, history["train_loss"], label=f"Train Loss (Loop {i+1})")
+        plt.plot(epochs, history["val_loss"], label=f"Val Loss (Loop {i+1})")
+        plt.plot(epochs, history["accuracy"], label=f"Accuracy (Loop {i+1})")
+        plt.plot(epochs, history["f1"], label=f"F1 Score (Loop {i+1})")
+
     plt.xlabel("Epochs")
     plt.ylabel("Value")
+    plt.title(f"Training Progress - Round {cfg.MODEL_ROUND}")
     plt.legend()
-    plt.title(f"Training Round {cfg.MODEL_ROUND}")
-    plt.savefig(f"{cfg.CACHE_DIR}/round_{cfg.MODEL_ROUND}/training_plot.png")
+    save_path = f"{cfg.CACHE_DIR}/round_{cfg.MODEL_ROUND}/training_plot.png"
+    plt.savefig(save_path)
     plt.close()
-    log(message="Saved training plot.", cfg=cfg)
+    log(message=f"Saved training plot at {save_path}.", cfg=cfg)

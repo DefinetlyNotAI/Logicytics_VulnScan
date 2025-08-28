@@ -21,6 +21,7 @@ class TrainingConfig:
         # Training parameters
         self.BATCH_SIZE: int = 16
         self.MAX_EPOCHS: int = 35
+        self.TRAIN_LOOPS: int = 3
         self.EARLY_STOPPING_PATIENCE: int = 5
         self.LR: float = 1e-3
         self.LR_JUMP: dict[str, int] = {"MAX": 5, "MIN": 0.1}
