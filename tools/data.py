@@ -4,7 +4,13 @@ sensitive_texts = [
     "Password: hunter2",
     "My email is johndoe@gmail.com",
     "Bank account number: 987654321",
-    "Private key: -----BEGIN RSA PRIVATE KEY-----",
+    """Private SSH key: -----BEGIN OPENSSH PRIVATE KEY-----
+    b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAlwAAAAdz
+    c2gtcnNhAAAAAwEAAQAAAQEAuJdEwN0gGkjD2vG1p+WxGpNmJqR6uZJcZCzjqQFk
+    sfrx6fDjrMpeZg4tF7RYh7v7Xl2U/3Wq/1g1oS1QK7svGz9kCeVh5W3U2pI5/LzE
+    o9B4nK8RQ3N8yR4m1bZ4hZ6pG2d5hF0cV5kJ7Q9rK2nC6dQ5fH8vW2pG9eJ1tL0b
+    K3sP8wQ6iK7mV4sJ9pR2nH3vT5yF8bC1dN6wL9jR2sQ0pK3mT1fV5yH8xG7rB2lM
+    -----END OPENSSH PRIVATE KEY-----""",
     "The system IP is 192.168.1.1",
     "Contact me at +1-202-555-0147",
     "Visa card exp 12/25 CVV 123",
@@ -16,7 +22,16 @@ sensitive_texts = [
     "Database password: P@ssw0rd123",
     "Credit card CVV: 321",
     "Bank routing number: 021000021",
-    "Private SSH key: -----BEGIN OPENSSH PRIVATE KEY-----",
+    """Private key: -----BEGIN RSA PRIVATE KEY-----
+    MIIEpAIBAAKCAQEAuJdEwN0gGkjD2vG1p+WxGpNmJqR6uZJcZCzjqQFksfrx6fDj
+    rMpeZg4tF7RYh7v7Xl2U/3Wq/1g1oS1QK7svGz9kCeVh5W3U2pI5/LzEo9B4nK8R
+    Q3N8yR4m1bZ4hZ6pG2d5hF0cV5kJ7Q9rK2nC6dQ5fH8vW2pG9eJ1tL0bK3sP8wQ6
+    iK7mV4sJ9pR2nH3vT5yF8bC1dN6wL9jR2sQ0pK3mT1fV5yH8xG7rB2lM9kP4vJ8o
+    Z1nQ6eH3tR2bV0mP5kF9jL1pT8wC7rK2sM0dN6yQ3xP8vG1fR5uH2nJ9bC4lK6oM
+    z5hT2pF1qR6vJ3sN0wX9kL4eY1dH7mC8gB0rV5fP2xN1tM3uQ6oK9jL8sR4wY2nZ
+    wIDAQABAoIBAQC3xWm7cP2rQ4yG9kV1jF5tL6nH3oR7pS2bM8qK1dU9eG4yT0fH2
+    rP6wN3jB9yC1vM5kF2xQ7lR0sJ4pH8tD3gK6vV1wN2mP7yT5qH0kL4nF3cZ9bR1u
+    -----END RSA PRIVATE KEY-----""",
     "My personal address: 123 Main St, Springfield",
     "Medical record ID: MR123456",
     "Tax ID: 123-45-6789",
