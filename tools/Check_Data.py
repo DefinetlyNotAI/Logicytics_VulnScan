@@ -1,7 +1,7 @@
 import torch
 
-val: int = 10
-data = torch.load(f"../cache/Model_Sense.4n1/dataset/dataset_{val}.pt", map_location="cpu")  # use CPU to avoid GPU issues
+val: int = 25000
+data = torch.load(f"../cache/dataset/dataset_{val}.pt", map_location="cpu")  # use CPU to avoid GPU issues
 print(type(data))
 if isinstance(data, dict):
     print("Keys:", list(data.keys()))
