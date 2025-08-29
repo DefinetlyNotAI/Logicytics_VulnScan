@@ -24,10 +24,10 @@ This document outlines the system's naming conventions, lifecycle, and model con
 `Model_{Type of model}.{Version}`
 
 - **Type of Model**: Describes the training data configuration.
-    - `SenseNano`: Test set with <10k files, each <5KB, used for error-checking.
-    - `SenseMini`: Dataset with 10k to 50k files, each between 5-200KB. `Balanced size for effective training and resource efficiency`.
-    - `Sense`: Sensitive data set with 50k to 1M files, each 5-50KB in size.
-    - `SenseMacro`: Large dataset with 1M files, each 5-10KB. `This is computationally intensive, so some corners may be cut in training`.
+    - `SenseNano`: Test set with <10k files or <1k vals (PT), used for error-checking.
+    - `SenseMini`: Dataset with 10k to 50k files or 1k-5k vals (PT). `Balanced size for effective training and resource efficiency`.
+    - `Sense`: Sensitive data set with 50k to 100k files or 5k-10k (PT).
+    - `SenseMacro`: Large dataset with >100k files or >10k (PT).
 
 - **Version Format**: `{Version#}{c}{Repeat#}`
     - **Version#**: Increment for major code updates.

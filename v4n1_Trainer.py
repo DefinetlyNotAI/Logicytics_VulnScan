@@ -10,21 +10,21 @@ from vulnscan import log, Train, plot_training, SimpleNN, EmbeddingDataset, Trai
 
 
 # ---------------- MAIN ----------------
-def main():
-    log(message="Loading GPT-Neo model for text generation...", cfg=cfg)
+def train(config: TrainingConfig):
+    log(message="Loading GPT-Neo model for text generation...", cfg=config)
     gpt_tokenizer = AutoTokenizer.from_pretrained("EleutherAI/gpt-neo-1.3B")
-    gpt_model = AutoModelForCausalLM.from_pretrained("EleutherAI/gpt-neo-1.3B").to(cfg.DEVICE)
+    gpt_model = AutoModelForCausalLM.from_pretrained("EleutherAI/gpt-neo-1.3B").to(config.DEVICE)
     if gpt_tokenizer.pad_token is None:
         gpt_tokenizer.pad_token = gpt_tokenizer.eos_token
 
-    log(message="Loading MiniLM for embeddings...", cfg=cfg)
+    log(message="Loading MiniLM for embeddings...", cfg=config)
     embed_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
-    log(message="Starting advanced self-training sensitive data classifier...", cfg=cfg)
-    generate = DataGen(cfg=cfg)
+    log(message="Starting advanced self-training sensitive data classifier...", cfg=config)
+    generate = DataGen(cfg=config)
 
     # Generate dataset
-    dataset_path = f"{cfg.DATA_CACHE_DIR}/dataset_{cfg.DATASET_SIZE}.pt"
+    dataset_path = f"{config.DATA_CACHE_DIR}/dataset_{config.DATASET_SIZE}.pt"
     if os.path.exists(dataset_path):
         data = torch.load(dataset_path)
         texts, labels = data["texts"], data["labels"]
@@ -32,37 +32,37 @@ def main():
         texts, labels = generate.dataset(gpt_tokenizer=gpt_tokenizer, gpt_model=gpt_model)
         torch.save({"texts": texts, "labels": labels}, dataset_path)
 
-    train_split = int(len(texts) * cfg.TRAIN_VAL_SPLIT)
-    val_split = int(len(texts) * cfg.VAL_SPLIT)
+    train_split = int(len(texts) * config.TRAIN_VAL_SPLIT)
+    val_split = int(len(texts) * config.VAL_SPLIT)
 
     train_texts, train_labels = texts[:train_split], labels[:train_split]
     val_texts, val_labels = texts[train_split:val_split], labels[train_split:val_split]
     test_texts, test_labels = texts[val_split:], labels[val_split:]
 
-    log(message="Generating test embeddings...", cfg=cfg)
+    log(message="Generating test embeddings...", cfg=config)
     generate.embeddings(embed_model=embed_model, texts=test_texts, labels=test_labels, split="test")
-    log(message="Generating train embeddings...", cfg=cfg)
+    log(message="Generating train embeddings...", cfg=config)
     generate.embeddings(embed_model=embed_model, texts=train_texts, labels=train_labels, split="train")
-    log(message="Generating validation embeddings...", cfg=cfg)
+    log(message="Generating validation embeddings...", cfg=config)
     generate.embeddings(embed_model=embed_model, texts=val_texts, labels=val_labels, split="validation")
 
-    train_dataset = EmbeddingDataset(cfg.EMBED_CACHE_DIR)
-    val_dataset = EmbeddingDataset(cfg.EMBED_CACHE_DIR)
-    val_loader = DataLoader(dataset=val_dataset, batch_size=cfg.BATCH_SIZE, shuffle=False)
+    train_dataset = EmbeddingDataset(config.EMBED_CACHE_DIR)
+    val_dataset = EmbeddingDataset(config.EMBED_CACHE_DIR)
+    val_loader = DataLoader(dataset=val_dataset, batch_size=config.BATCH_SIZE, shuffle=False)
 
-    train = Train(cfg=cfg)
-    model = SimpleNN(input_dim=384).to(cfg.DEVICE)
+    train = Train(cfg=config)
+    model = SimpleNN(input_dim=384).to(config.DEVICE)
 
     # Run training (handles TRAIN_LOOPS internally)
     history_loops = train.model(model=model, train_dataset=train_dataset, val_loader=val_loader)
 
     # Plot + save history for each loop
     for i, history in enumerate(history_loops):
-        plot_training(cfg=cfg, history_loops=history_loops)
-        with open(f"{cfg.CACHE_DIR}/round_{cfg.MODEL_ROUND}/training_history_loop{i+1}.json", "w") as f:
+        plot_training(cfg=config, history_loops=history_loops)
+        with open(f"{config.CACHE_DIR}/round_{config.MODEL_ROUND}/training_history_loop{i + 1}.json", "w") as f:
             json.dump(history, f)
 
-    log(message="Training complete. All data, plots, and model saved.", cfg=cfg)
+    log(message="Training complete. All data, plots, and model saved.", cfg=config)
 
 
 if __name__ == "__main__":
@@ -102,4 +102,21 @@ if __name__ == "__main__":
         # Device / system
         "RAM_THRESHOLD": 0.85  # Maximum allowed fraction of RAM usage before halting generation and offloading
     })
-    main()
+
+    available_epochs = [10, 100, 1000, 5000, 10000, 17500, 25000]
+    for epochs in available_epochs:
+        if epochs <= 1000:
+            name = "SenseNano"
+        elif 1000 < epochs <= 5000:
+            name = "SenseMini"
+        elif 5000 < epochs <= 10000:
+            name = "Sense"
+        else:
+            name = "SenseMacro"
+
+        cfg.update({
+            # Model / caching / logging
+            "MODEL_NAME": f"Model_{name}.4n1",  # Name of the model for identification and caching
+            "DATASET_SIZE": epochs,  # Number of samples to generate for training (not the same as for the training rounds themselves)
+        })
+        train(config=cfg)
