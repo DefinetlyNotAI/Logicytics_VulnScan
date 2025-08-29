@@ -4,20 +4,24 @@ from torch.utils.tensorboard import SummaryWriter
 
 
 class TrainingConfig:
-    def __init__(self, model_name: str = "Model_Sense.4n1"):
+    def __init__(self):
+        """
+        Configuration class for training settings and hyperparameters.
+
+        You must call the update method and set MODEL_NAME.
+        """
+
         # Model / caching / logging
-        self.MODEL_NAME = model_name
+        self.MODEL_NAME = None
+        self.writer = None
+        self.LOG_FILE = None
+        self.EMBED_CACHE_DIR = None
+
         self.CACHE_DIR = os.path.join(os.getcwd(), "cache")
+        self.DATASET_CACHE_DIR = f"{self.CACHE_DIR}/dataset"
 
         existing_rounds = self.__get_existing_rounds(self.CACHE_DIR)  # Auto-increment round based on existing folders
         self.MODEL_ROUND = max(existing_rounds) + 1 if existing_rounds else 1
-
-        self.LOG_FILE = f"{self.CACHE_DIR}/{self.MODEL_NAME}/training.log"
-        self.EMBED_CACHE_DIR = f"{self.CACHE_DIR}/{self.MODEL_NAME}/round_{self.MODEL_ROUND}/embeddings"
-        self.DATA_CACHE_DIR = f"{self.CACHE_DIR}/dataset"
-
-        # TensorBoard
-        self.writer = SummaryWriter(log_dir=f"{self.CACHE_DIR}/{self.MODEL_NAME}/round_{self.MODEL_ROUND}/tensorboard_logs")
 
         # Training parameters
         self.BATCH_SIZE: int = 16
@@ -52,11 +56,6 @@ class TrainingConfig:
         # Device / system
         self.DEVICE: str = "cuda" if torch.cuda.is_available() else "cpu"
         self.RAM_THRESHOLD: float = 0.85
-
-        # Create necessary folders
-        os.makedirs(self.CACHE_DIR, exist_ok=True)
-        os.makedirs(self.EMBED_CACHE_DIR, exist_ok=True)
-        os.makedirs(self.DATA_CACHE_DIR, exist_ok=True)
 
     @staticmethod
     def __get_existing_rounds(cache_dir: str) -> list[int]:
@@ -95,8 +94,9 @@ class TrainingConfig:
         if 'MODEL_NAME' in dict(items) or 'CACHE_DIR' in dict(items) or 'MODEL_ROUND' in dict(items):
             self.LOG_FILE = f"{self.CACHE_DIR}/{self.MODEL_NAME}/training.log"
             self.EMBED_CACHE_DIR = f"{self.CACHE_DIR}/{self.MODEL_NAME}/round_{self.MODEL_ROUND}/embeddings"
-            self.writer = SummaryWriter(log_dir=f"{self.CACHE_DIR}/{self.MODEL_NAME}/round_{self.MODEL_ROUND}/tensorboard_logs")
+            self.writer = SummaryWriter(
+                log_dir=f"{self.CACHE_DIR}/{self.MODEL_NAME}/round_{self.MODEL_ROUND}/tensorboard_logs")
             os.makedirs(self.EMBED_CACHE_DIR, exist_ok=True)
-        if 'CACHE_DIR' in dict(items):
-            self.DATA_CACHE_DIR = f"{self.CACHE_DIR}/dataset"
-            os.makedirs(self.DATA_CACHE_DIR, exist_ok=True)
+        if 'DATASET_CACHE_DIR' in dict(items):
+            self.DATASET_CACHE_DIR = f"{self.CACHE_DIR}/dataset"
+            os.makedirs(self.DATASET_CACHE_DIR, exist_ok=True)

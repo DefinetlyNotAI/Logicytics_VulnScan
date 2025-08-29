@@ -38,7 +38,7 @@ def train(config: TrainingConfig, resources: dict):
     generate = DataGen(cfg=config)
 
     # Generate dataset
-    dataset_path = f"{config.DATA_CACHE_DIR}/dataset_{config.DATASET_SIZE}.pt"
+    dataset_path = f"{config.DATASET_CACHE_DIR}/dataset_{config.DATASET_SIZE}.pt"
     if os.path.exists(dataset_path):
         data = torch.load(dataset_path)
         texts, labels = data["texts"], data["labels"]
@@ -86,9 +86,6 @@ if __name__ == "__main__":
     # ---------------- CONFIG ----------------
     cfg = TrainingConfig()
     cfg.update({
-        # Model / caching / logging
-        "MODEL_NAME": "Model_Sense.4n1",  # Name of the model for identification and caching
-
         # Training parameters
         "BATCH_SIZE": 32,  # Number of samples per training batch
         "MAX_EPOCHS": 35,  # Maximum number of training epochs
@@ -101,8 +98,6 @@ if __name__ == "__main__":
         "LR_DECAY": 0.9,  # Factor to multiply learning rate after decay
         "AUTO_CONTINUE": False,  # Whether to automatically continue training and ignore EARLY_STOPPING_PATIENCE
 
-        # Dataset / data generation
-        "DATASET_SIZE": 25000,
         # Number of samples to generate for training (not the same as for the training rounds themselves)
         "TEXT_MAX_LEN": 128,  # Maximum length of generated text samples
         "TEXT_MAX_LEN_JUMP_RANGE": 10,  # Range for random variation in text length

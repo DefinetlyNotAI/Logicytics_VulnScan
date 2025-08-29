@@ -43,7 +43,7 @@ if gpt_tokenizer.pad_token is None:
 dataset_ranges = [10, 100, 1000, 5000, 10000, 17500, 25000]
 
 for dr in dataset_ranges:
-    dataset_path = f"{cfg.DATA_CACHE_DIR}/dataset_{dr}.pt"
+    dataset_path = f"{cfg.DATASET_CACHE_DIR}/dataset_{dr}.pt"
 
     # Skip if already exists
     if os.path.exists(dataset_path):
@@ -57,7 +57,7 @@ for dr in dataset_ranges:
     smaller_existing.sort(reverse=True)
 
     for sr in smaller_existing:
-        candidate_path = f"{cfg.DATA_CACHE_DIR}/dataset_{sr}.pt"
+        candidate_path = f"{cfg.DATASET_CACHE_DIR}/dataset_{sr}.pt"
         if os.path.exists(candidate_path):
             data = torch.load(candidate_path, map_location="cpu")
             base_texts, base_labels = data["texts"], data["labels"]
