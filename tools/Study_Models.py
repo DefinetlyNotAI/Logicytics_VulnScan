@@ -13,11 +13,12 @@ from torch.utils.data import DataLoader, Dataset
 from torchviz import make_dot
 
 # ----------------- Setup -----------------
-DATA_DIR = "data"
-os.makedirs(DATA_DIR, exist_ok=True)
-EMBEDDINGS_DIR = "../cache/Model_Sense.4n1/round_7/embeddings"  # your embeddings directory
-MODEL_PATH = "../cache/Model_Sense.4n1/round_7/Model_Sense.4n1_round7.pth"  # path to saved SimpleNN state_dict
-
+NAME = "Model_Sense.4n1"
+ROUND = 5
+OUTPUT_DIR = f"../{NAME}_Data_Visualization"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+EMBEDDINGS_DIR = f"../cache/{NAME}/round_{ROUND}/embeddings"  # your embeddings directory
+MODEL_PATH = f"../cache/{NAME}/round_{ROUND}/{NAME}_round{ROUND}.pth"  # path to saved SimpleNN state_dict
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -79,7 +80,7 @@ def visualize_weight_distribution(model_, filename="Weight_Distribution.png"):
     plt.title("Weight Distribution - First Layer")
     plt.xlabel("Weight Value")
     plt.ylabel("Frequency")
-    plt.savefig(os.path.join(DATA_DIR, filename))
+    plt.savefig(os.path.join(OUTPUT_DIR, filename))
     plt.close()
 
 
@@ -98,7 +99,7 @@ def visualize_activations(model_, sample_input_, filename="Visualize_Activation.
     plt.title("Activation Values - First Layer")
     plt.xlabel("Neuron Index")
     plt.ylabel("Activation Value")
-    plt.savefig(os.path.join(DATA_DIR, filename))
+    plt.savefig(os.path.join(OUTPUT_DIR, filename))
     plt.close()
 
 
@@ -151,7 +152,7 @@ def visualize_tsne_custom(model_, embedder_, texts_, labels_, filename="Visualiz
     plt.xlabel("t-SNE Dim 1")
     plt.ylabel("t-SNE Dim 2")
     plt.title("t-SNE of Custom Real-World Samples")
-    plt.savefig(os.path.join(DATA_DIR, filename))
+    plt.savefig(os.path.join(OUTPUT_DIR, filename))
     plt.close()
 
 
@@ -184,7 +185,7 @@ def visualize_tsne(model_, dataloader_, filename="Visualize_tSNE.png", use_penul
         plt.xlabel("t-SNE Dim 1")
         plt.ylabel("t-SNE Dim 2")
         plt.title("t-SNE Visualization of Features")
-        plt.savefig(os.path.join(DATA_DIR, filename))
+        plt.savefig(os.path.join(OUTPUT_DIR, filename))
         plt.close()
 
 
@@ -198,7 +199,7 @@ def visualize_feature_importance(input_dim_, filename="Feature_Importance.svg"):
     plt.xlabel("Features")
     plt.ylabel("Importance")
     plt.xticks(rotation=45)
-    plt.savefig(os.path.join(DATA_DIR, filename))
+    plt.savefig(os.path.join(OUTPUT_DIR, filename))
     plt.close()
 
 
@@ -230,11 +231,11 @@ def plot_loss_landscape_3d(model_, dataloader_, criterion_, grid_size=30, epsilo
     X_grid, Y_grid = np.meshgrid(x, y)
     fig = go.Figure(data=[go.Surface(z=loss_values, x=X_grid, y=Y_grid, colorscale="Viridis")])
     fig.update_layout(title="Loss Landscape", scene=dict(xaxis_title="u", yaxis_title="v", zaxis_title="Loss"))
-    fig.write_html(os.path.join(DATA_DIR, filename))
+    fig.write_html(os.path.join(OUTPUT_DIR, filename))
 
 
 def save_model_state_dict(model_, filename="Model_State_Dict.txt"):
-    with open(os.path.join(DATA_DIR, filename), "w") as f:
+    with open(os.path.join(OUTPUT_DIR, filename), "w") as f:
         for name, tensor in model_.state_dict().items():
             f.write(f"{name}: {tensor.size()}\n")
 
@@ -243,7 +244,7 @@ def generate_model_visualization(model_, input_dim_, filename="Model_Visualizati
     dummy_input = torch.randn(1, input_dim_).to(DEVICE)
     dot = make_dot(model_(dummy_input), params=dict(model_.named_parameters()))
     dot.format = "png"
-    dot.render(filename=os.path.join(DATA_DIR, filename), format="png")
+    dot.render(filename=os.path.join(OUTPUT_DIR, filename), format="png")
 
 
 def save_graph(model_, filename="Neural_Network_Nodes_Graph.gexf"):
@@ -255,11 +256,11 @@ def save_graph(model_, filename="Neural_Network_Nodes_Graph.gexf"):
             rows, cols = np.where(np.abs(W) > threshold)
             for r, c in zip(rows, cols):
                 G.add_edge(f"{name}_in_{c}", f"{name}_out_{r}", weight=W[r, c])
-    nx.write_gexf(G, os.path.join(DATA_DIR, filename))
+    nx.write_gexf(G, os.path.join(OUTPUT_DIR, filename))
 
 
 def save_model_summary(model_, filename="Model_Summary.txt"):
-    with open(os.path.join(DATA_DIR, filename), "w") as f:
+    with open(os.path.join(OUTPUT_DIR, filename), "w") as f:
         f.write(str(model_))
 
 

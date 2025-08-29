@@ -3,9 +3,13 @@ from sentence_transformers import SentenceTransformer
 from vulnscan import SimpleNN
 import glob
 import os
+# ---------------- INIT ----------------
+NAME = "Model_Sense.4n1"
+ROUND = 5
 
 # ---------------- LOAD MODEL + EMBEDDER ----------------
 device = "cuda" if torch.cuda.is_available() else "cpu"
+print("Using device:", device)
 
 
 def load_embeddings(folder_path, pattern):
@@ -23,7 +27,7 @@ def load_embeddings(folder_path, pattern):
 
 
 # Example paths
-cache_dir = "cache/Model_Sense.4n1/round_7/embeddings"
+cache_dir = f"cache/{NAME}/round_{ROUND}/embeddings"
 
 # Load all train/test/val embeddings
 train_embeddings, train_labels = load_embeddings(cache_dir, "train_*.pt")
@@ -34,7 +38,7 @@ val_embeddings, val_labels = load_embeddings(cache_dir, "val_*.pt")
 input_dim = train_embeddings.shape[1]
 model = SimpleNN(input_dim=input_dim).to(device)
 model.load_state_dict(torch.load(
-    "cache/Model_Sense.4n1/round_7/Model_Sense.4n1_round7.pth",
+    f"cache/{NAME}/round_{ROUND}/{NAME}_round{ROUND}.pth",
     map_location="cpu"
 ))
 model.eval()
@@ -47,10 +51,15 @@ with torch.no_grad():
     outputs = model(test_embeddings.to(device))
     preds = torch.sigmoid(outputs).squeeze()
 
-print("\n=== TEST 1: Stored Embeddings ===")
-print("Sample predictions vs true labels (first 10):")
-for i in range(10):
-    print(f"Pred={preds[i].item():.3f} | Label={test_labels[i].item()}")
+print("\n=== TEST 1: Stored Embeddings (50% sample) ===")
+print("Sample predictions vs true labels (first 50%):")
+sample_size = len(preds) // 2
+for i in range(sample_size):
+    print(f"    Pred={preds[i].item():.3f} | Label={test_labels[i].item()}")
+# Calculate accuracy
+pred_labels = (preds >= 0.5).long().cpu()
+accuracy = (pred_labels == test_labels).sum().item() / len(test_labels)
+print(f"\nAccuracy on stored embeddings: {accuracy * 100:.2f}%")
 
 # ---------------- 2. TEST ON NATURAL EXAMPLES ----------------
 sensitive_texts = [
@@ -165,12 +174,13 @@ with torch.no_grad():
     outputs = model(test_embs)
     preds = torch.sigmoid(outputs).squeeze()
 
-print("\n=== TEST 2: Natural Examples ===")
+print("\n\n=== TEST 2: Natural Examples ===")
+print("Real-world samples predictions vs true labels:")
 correct = 0
 for i, (text, pred, label) in enumerate(zip(test_texts, preds, test_labels)):
     decision = 1 if pred.item() >= 0.5 else 0
     if decision == label:
         correct += 1
-    print(f"[{i + 1}] Pred={pred.item():.3f} | Label={label} | Text={text[:50]}...")
+    print(f"    [{i + 1}] Pred={pred.item():.3f} | Label={label} | Text={text[:50]}...")
 
 print(f"\nAccuracy on natural 100 samples: {correct}/{len(test_labels)} = {correct / len(test_labels) * 100:.2f}%")
