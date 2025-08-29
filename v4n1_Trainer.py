@@ -9,18 +9,32 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from vulnscan import log, Train, plot_training, SimpleNN, EmbeddingDataset, TrainingConfig, DataGen
 
 
-# ---------------- MAIN ----------------
-def train(config: TrainingConfig):
-    log(message="Loading GPT-Neo model for text generation...", cfg=config)
+# ---------------- INIT ----------------
+def init(config: TrainingConfig) -> dict:
+    """Initialize static, config-free resources (only once)."""
+    log("Loading GPT-Neo tokenizer/model (static init)...", cfg=config)
     gpt_tokenizer = AutoTokenizer.from_pretrained("EleutherAI/gpt-neo-1.3B")
-    gpt_model = AutoModelForCausalLM.from_pretrained("EleutherAI/gpt-neo-1.3B").to(config.DEVICE)
+    gpt_model = AutoModelForCausalLM.from_pretrained("EleutherAI/gpt-neo-1.3B")
     if gpt_tokenizer.pad_token is None:
         gpt_tokenizer.pad_token = gpt_tokenizer.eos_token
 
-    log(message="Loading MiniLM for embeddings...", cfg=config)
+    log("Loading MiniLM for embeddings (static init)...", cfg=config)
     embed_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
-    log(message="Starting advanced self-training sensitive data classifier...", cfg=config)
+    return {
+        "gpt_tokenizer": gpt_tokenizer,
+        "gpt_model": gpt_model,
+        "embed_model": embed_model,
+    }
+
+
+# ---------------- TRAIN ----------------
+def train(config: TrainingConfig, resources: dict):
+    gpt_tokenizer = resources["gpt_tokenizer"]
+    gpt_model = resources["gpt_model"].to(config.DEVICE)  # attach to device here
+    embed_model = resources["embed_model"]
+
+    log("Init DataGen with config...", cfg=config, silent=True)
     generate = DataGen(cfg=config)
 
     # Generate dataset
@@ -39,11 +53,11 @@ def train(config: TrainingConfig):
     val_texts, val_labels = texts[train_split:val_split], labels[train_split:val_split]
     test_texts, test_labels = texts[val_split:], labels[val_split:]
 
-    log(message="Generating test embeddings...", cfg=config)
+    log("Generating test embeddings...", cfg=config)
     generate.embeddings(embed_model=embed_model, texts=test_texts, labels=test_labels, split="test")
-    log(message="Generating train embeddings...", cfg=config)
+    log("Generating train embeddings...", cfg=config)
     generate.embeddings(embed_model=embed_model, texts=train_texts, labels=train_labels, split="train")
-    log(message="Generating validation embeddings...", cfg=config)
+    log("Generating validation embeddings...", cfg=config)
     generate.embeddings(embed_model=embed_model, texts=val_texts, labels=val_labels, split="validation")
 
     train_dataset = EmbeddingDataset(config.EMBED_CACHE_DIR)
@@ -59,14 +73,17 @@ def train(config: TrainingConfig):
     # Plot + save history for each loop
     for i, history in enumerate(history_loops):
         plot_training(cfg=config, history_loops=history_loops)
-        with open(f"{config.CACHE_DIR}/{config.MODEL_NAME}/round_{config.MODEL_ROUND}/training_history_loop{i + 1}.json", "w") as f:
+        with open(
+                f"{config.CACHE_DIR}/{config.MODEL_NAME}/round_{config.MODEL_ROUND}/training_history_loop{i + 1}.json",
+                "w") as f:
             json.dump(history, f)
 
-    log(message="Training complete. All data, plots, and model saved.", cfg=config)
+    log("Training complete. All data, plots, and model saved.", cfg=config)
 
 
 if __name__ == "__main__":
     # noinspection DuplicatedCode
+    # ---------------- CONFIG ----------------
     cfg = TrainingConfig()
     cfg.update({
         # Model / caching / logging
@@ -85,7 +102,8 @@ if __name__ == "__main__":
         "AUTO_CONTINUE": False,  # Whether to automatically continue training and ignore EARLY_STOPPING_PATIENCE
 
         # Dataset / data generation
-        "DATASET_SIZE": 25000,  # Number of samples to generate for training (not the same as for the training rounds themselves)
+        "DATASET_SIZE": 25000,
+        # Number of samples to generate for training (not the same as for the training rounds themselves)
         "TEXT_MAX_LEN": 128,  # Maximum length of generated text samples
         "TEXT_MAX_LEN_JUMP_RANGE": 10,  # Range for random variation in text length
         "VAL_SPLIT": 0.85,  # Fraction of dataset used for training + validation (rest for testing)
@@ -102,7 +120,9 @@ if __name__ == "__main__":
         # Device / system
         "RAM_THRESHOLD": 0.85  # Maximum allowed fraction of RAM usage before halting generation and offloading
     })
+    train_init = init(cfg)
 
+    # ----------------- RUN ------------------
     available_dataset = [10, 100, 1000, 5000, 10000, 17500, 25000]
     for dataset in available_dataset:
         if dataset <= 1000:
@@ -117,7 +137,8 @@ if __name__ == "__main__":
         cfg.update({
             # Model / caching / logging
             "MODEL_NAME": f"Model_{name}.4n1",  # Name of the model for identification and caching
-            "DATASET_SIZE": dataset,  # Number of samples to generate for training (not the same as for the training rounds themselves)
+            "DATASET_SIZE": dataset,
+            # Number of samples to generate for training (not the same as for the training rounds themselves)
         })
         log(message=f"Training {name} with {dataset} dataset...", cfg=cfg)
-        train(config=cfg)
+        train(config=cfg, resources=train_init)
