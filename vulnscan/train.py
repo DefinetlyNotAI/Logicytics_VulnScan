@@ -107,7 +107,7 @@ class Train:
                 loss.backward()
                 optimizer.step()
             epoch_loss += loss.item()
-            all_preds.extend(torch.sigmoid(outputs).round().cpu().numpy())
+            all_preds.extend(torch.sigmoid(outputs).round().cpu().detach().numpy())
             all_labels.extend(y.cpu().numpy())
         return epoch_loss / len(loader), all_preds, all_labels
 
@@ -134,7 +134,7 @@ class Train:
 
     # Save model checkpoint
     def save_checkpoint(self, model: SimpleNN, optimizer: torch.optim.Adam, scaler: torch.amp.GradScaler, epoch: int):
-        round_dir = f"{self.cfg.CACHE_DIR}/round_{self.cfg.MODEL_ROUND}"
+        round_dir = f"{self.cfg.CACHE_DIR}/{self.cfg.MODEL_NAME}/round_{self.cfg.MODEL_ROUND}"
         os.makedirs(round_dir, exist_ok=True)
         model_path = f"{round_dir}/{self.cfg.MODEL_NAME}_round{self.cfg.MODEL_ROUND}.pth"
         torch.save({

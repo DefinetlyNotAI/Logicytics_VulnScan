@@ -50,16 +50,16 @@ def train(config: TrainingConfig):
     val_dataset = EmbeddingDataset(config.EMBED_CACHE_DIR)
     val_loader = DataLoader(dataset=val_dataset, batch_size=config.BATCH_SIZE, shuffle=False)
 
-    train = Train(cfg=config)
+    train_ = Train(cfg=config)
     model = SimpleNN(input_dim=384).to(config.DEVICE)
 
     # Run training (handles TRAIN_LOOPS internally)
-    history_loops = train.model(model=model, train_dataset=train_dataset, val_loader=val_loader)
+    history_loops = train_.model(model=model, train_dataset=train_dataset, val_loader=val_loader)
 
     # Plot + save history for each loop
     for i, history in enumerate(history_loops):
         plot_training(cfg=config, history_loops=history_loops)
-        with open(f"{config.CACHE_DIR}/round_{config.MODEL_ROUND}/training_history_loop{i + 1}.json", "w") as f:
+        with open(f"{config.CACHE_DIR}/{config.MODEL_NAME}/round_{config.MODEL_ROUND}/training_history_loop{i + 1}.json", "w") as f:
             json.dump(history, f)
 
     log(message="Training complete. All data, plots, and model saved.", cfg=config)
@@ -103,13 +103,13 @@ if __name__ == "__main__":
         "RAM_THRESHOLD": 0.85  # Maximum allowed fraction of RAM usage before halting generation and offloading
     })
 
-    available_epochs = [10, 100, 1000, 5000, 10000, 17500, 25000]
-    for epochs in available_epochs:
-        if epochs <= 1000:
+    available_dataset = [10, 100, 1000, 5000, 10000, 17500, 25000]
+    for dataset in available_dataset:
+        if dataset <= 1000:
             name = "SenseNano"
-        elif 1000 < epochs <= 5000:
+        elif 1000 < dataset <= 5000:
             name = "SenseMini"
-        elif 5000 < epochs <= 10000:
+        elif 5000 < dataset <= 10000:
             name = "Sense"
         else:
             name = "SenseMacro"
@@ -117,6 +117,7 @@ if __name__ == "__main__":
         cfg.update({
             # Model / caching / logging
             "MODEL_NAME": f"Model_{name}.4n1",  # Name of the model for identification and caching
-            "DATASET_SIZE": epochs,  # Number of samples to generate for training (not the same as for the training rounds themselves)
+            "DATASET_SIZE": dataset,  # Number of samples to generate for training (not the same as for the training rounds themselves)
         })
+        log(message=f"Training {name} with {dataset} dataset...", cfg=cfg)
         train(config=cfg)

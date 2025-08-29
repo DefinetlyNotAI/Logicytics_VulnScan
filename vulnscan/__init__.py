@@ -21,7 +21,7 @@ def plot_training(cfg, history_loops: list):
     plt.ylabel("Value")
     plt.title(f"Training Progress - Round {cfg.MODEL_ROUND}")
     plt.legend()
-    save_path = f"{cfg.CACHE_DIR}/round_{cfg.MODEL_ROUND}/training_plot.png"
+    save_path = f"{cfg.CACHE_DIR}/{cfg.MODEL_NAME}/round_{cfg.MODEL_ROUND}/training_plot.png"
     plt.savefig(save_path)
     plt.close()
-    log(message=f"Saved training plot at {save_path}.", cfg=cfg)
+    log(message=f"Saved training plot at {save_path.replace('\\', '/')}.", cfg=cfg)
