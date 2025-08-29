@@ -133,12 +133,13 @@ if __name__ == "__main__":
             name = "Sense"
         else:
             name = "SenseMacro"
-
+        existing_rounds = cfg.get_existing_rounds(cfg.CACHE_DIR)  # Auto-increment round based on existing folders
+        model_round = max(existing_rounds) + 1 if existing_rounds else 1
         cfg.update({
             # Model / caching / logging
             "MODEL_NAME": f"Model_{name}.4n1",  # Name of the model for identification and caching
-            "DATASET_SIZE": dataset,
-            # Number of samples to generate for training (not the same as for the training rounds themselves)
+            "DATASET_SIZE": dataset,            # Number of samples to generate for training (not the same as for the training rounds themselves)
+            "MODEL_ROUND": model_round          # Current training round (auto-incremented)
         })
-        log(message=f"Training {name} with {dataset} dataset...", cfg=cfg)
+        log(message=f"Training 'Model_{name}.4n1/round_{model_round}/' with {dataset} dataset...", cfg=cfg)
         train(config=cfg, resources=train_init)
