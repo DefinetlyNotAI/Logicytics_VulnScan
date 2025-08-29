@@ -286,8 +286,11 @@ sample_input = sample_X.unsqueeze(0).to(DEVICE)
 criterion = nn.BCEWithLogitsLoss()
 
 # Run all visualizations
+print("Running visualize_weight_distribution...")
 visualize_weight_distribution(model)
+print("Running visualize_activations...")
 visualize_activations(model, sample_input)
+print("Preparing texts and labels for t-SNE custom visualization...")
 texts = [
     # Non-sensitive (0)
     "I need to buy milk and bread from the grocery store.",
@@ -300,14 +303,23 @@ texts = [
     "My social security number is 123-45-6789."
 ]
 labels = [0, 0, 0, 1, 1, 1]
+print("Loading SentenceTransformer embedder...")
 embedder = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+print("Running visualize_tsne...")
 visualize_tsne(model, dataloader)
+print("Running visualize_tsne_custom...")
 visualize_tsne_custom(model, embedder, texts, labels)
+print("Running visualize_feature_importance...")
 visualize_feature_importance(input_dim)
+print("Running plot_loss_landscape_3d...")
 plot_loss_landscape_3d(model, dataloader, criterion)
+print("Saving model state dict...")
 save_model_state_dict(model)
+print("Generating model visualization...")
 generate_model_visualization(model, input_dim)
+print("Saving graph...")
 save_graph(model)
+print("Saving model summary...")
 save_model_summary(model)
 
 print("All visualizations completed. Files saved in 'data/' directory.")

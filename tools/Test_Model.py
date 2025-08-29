@@ -1,3 +1,5 @@
+import sys
+
 import torch
 from sentence_transformers import SentenceTransformer
 from vulnscan import SimpleNN
@@ -15,6 +17,9 @@ print("Using device:", device)
 def load_embeddings(folder_path, pattern):
     """Load all .pt files matching pattern and concatenate embeddings and labels"""
     files = sorted(glob.glob(os.path.join(folder_path, pattern)))
+    print("Found files:", files)
+    if not files:
+        sys.exit(f"No files found in {folder_path} matching {pattern}")
     all_embeddings = []
     all_labels = []
     for f in files:
@@ -27,18 +32,18 @@ def load_embeddings(folder_path, pattern):
 
 
 # Example paths
-cache_dir = f"cache/{NAME}/round_{ROUND}/embeddings"
+cache_dir = f"../cache/{NAME}/round_{ROUND}/embeddings"
 
 # Load all train/test/val embeddings
 train_embeddings, train_labels = load_embeddings(cache_dir, "train_*.pt")
 test_embeddings, test_labels = load_embeddings(cache_dir, "test_*.pt")
-val_embeddings, val_labels = load_embeddings(cache_dir, "val_*.pt")
+val_embeddings, val_labels = load_embeddings(cache_dir, "validation_*.pt")
 
 # Initialize model
 input_dim = train_embeddings.shape[1]
 model = SimpleNN(input_dim=input_dim).to(device)
 model.load_state_dict(torch.load(
-    f"cache/{NAME}/round_{ROUND}/{NAME}_round{ROUND}.pth",
+    f"../cache/{NAME}/round_{ROUND}/{NAME}_round{ROUND}.pth",
     map_location="cpu"
 ))
 model.eval()
