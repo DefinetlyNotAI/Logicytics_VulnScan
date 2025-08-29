@@ -12,6 +12,8 @@ from sklearn.manifold import TSNE
 from torch.utils.data import DataLoader, Dataset
 from torchviz import make_dot
 
+from data import test_texts, test_labels
+
 # ----------------- Setup -----------------
 NAME = "Model_Sense.4n1"
 ROUND = 5
@@ -291,24 +293,13 @@ visualize_weight_distribution(model)
 print("Running visualize_activations...")
 visualize_activations(model, sample_input)
 print("Preparing texts and labels for t-SNE custom visualization...")
-texts = [
-    # Non-sensitive (0)
-    "I need to buy milk and bread from the grocery store.",
-    "The weather is nice today, let's go for a walk.",
-    "Python is my favorite programming language.",
 
-    # Sensitive (1)
-    "My credit card number is 4929 1234 5678 9012.",
-    "The patient's medical history includes diabetes and hypertension.",
-    "My social security number is 123-45-6789."
-]
-labels = [0, 0, 0, 1, 1, 1]
 print("Loading SentenceTransformer embedder...")
 embedder = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 print("Running visualize_tsne...")
 visualize_tsne(model, dataloader)
 print("Running visualize_tsne_custom...")
-visualize_tsne_custom(model, embedder, texts, labels)
+visualize_tsne_custom(model, embedder, test_texts, test_labels)
 print("Running visualize_feature_importance...")
 visualize_feature_importance(input_dim)
 print("Running plot_loss_landscape_3d...")
