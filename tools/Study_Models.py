@@ -275,7 +275,8 @@ input_dim = sample_X.shape[0]
 # Load model
 model = SimpleNN(input_dim).to(DEVICE)
 if os.path.exists(MODEL_PATH):
-    model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
+    checkpoint = torch.load(MODEL_PATH, map_location=DEVICE)
+    model.load_state_dict(checkpoint["model_state_dict"])
 model.eval()
 
 # Sample input for activation visualization
