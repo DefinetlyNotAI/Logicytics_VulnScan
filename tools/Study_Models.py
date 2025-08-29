@@ -15,8 +15,8 @@ from torchviz import make_dot
 from data import test_texts, test_labels
 
 # ----------------- Setup -----------------
-NAME = "Model_Sense.4n1"
-ROUND = 5
+NAME = "Model_SenseMacro.4n1"
+ROUND = 7
 OUTPUT_DIR = f"../{NAME}_Data_Visualization"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 EMBEDDINGS_DIR = f"../cache/{NAME}/round_{ROUND}/embeddings"  # your embeddings directory

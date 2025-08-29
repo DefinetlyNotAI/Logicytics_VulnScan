@@ -9,8 +9,8 @@ from data import test_texts, test_labels
 from vulnscan import SimpleNN
 
 # ---------------- INIT ----------------
-NAME = "Model_Sense.4n1"
-ROUND = 5
+NAME = "Model_SenseMacro.4n1"
+ROUND = 7
 
 # ---------------- LOAD MODEL + EMBEDDER ----------------
 device = "cuda" if torch.cuda.is_available() else "cpu"
