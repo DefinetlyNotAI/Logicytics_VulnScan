@@ -75,6 +75,7 @@ class TrainingConfig:
         """
         Update any configuration variable dynamically.
         Accepts a dict or a list of (key, value) pairs.
+        Also updates dependent variables if their base values change.
         Example:
             cfg.update({'BATCH_SIZE': 32, 'LR': 5e-4})
             cfg.update([('BATCH_SIZE', 32), ('LR', 5e-4)])
@@ -90,3 +91,12 @@ class TrainingConfig:
                 setattr(self, key, value)
             else:
                 raise AttributeError(f"TrainingConfig has no attribute '{key}'")
+        # Update dependent variables if their base values changed
+        if 'MODEL_NAME' in dict(items) or 'CACHE_DIR' in dict(items) or 'MODEL_ROUND' in dict(items):
+            self.LOG_FILE = f"{self.CACHE_DIR}/{self.MODEL_NAME}/training.log"
+            self.EMBED_CACHE_DIR = f"{self.CACHE_DIR}/{self.MODEL_NAME}/round_{self.MODEL_ROUND}/embeddings"
+            self.writer = SummaryWriter(log_dir=f"{self.CACHE_DIR}/{self.MODEL_NAME}/round_{self.MODEL_ROUND}/tensorboard_logs")
+            os.makedirs(self.EMBED_CACHE_DIR, exist_ok=True)
+        if 'CACHE_DIR' in dict(items):
+            self.DATA_CACHE_DIR = f"{self.CACHE_DIR}/dataset"
+            os.makedirs(self.DATA_CACHE_DIR, exist_ok=True)
