@@ -13,6 +13,7 @@ from vulnscan.log import log
 
 
 # ---------------- DATASET CLASS ----------------
+# noinspection DuplicatedCode
 class EmbeddingDataset(Dataset):
     def __init__(self, embed_cache_dir):
         self.files = sorted(os.listdir(embed_cache_dir))

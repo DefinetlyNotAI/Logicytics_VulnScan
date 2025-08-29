@@ -7,17 +7,17 @@ class TrainingConfig:
     def __init__(self, model_name: str = "Model_Sense.4n1"):
         # Model / caching / logging
         self.MODEL_NAME = model_name
-        self.CACHE_DIR = os.path.join(os.getcwd(), "cache", self.MODEL_NAME)
+        self.CACHE_DIR = os.path.join(os.getcwd(), "cache")
 
         existing_rounds = self.__get_existing_rounds(self.CACHE_DIR)  # Auto-increment round based on existing folders
         self.MODEL_ROUND = max(existing_rounds) + 1 if existing_rounds else 1
 
-        self.LOG_FILE = f"{self.CACHE_DIR}/training.log"
-        self.EMBED_CACHE_DIR = f"{self.CACHE_DIR}/round_{self.MODEL_ROUND}/embeddings"
+        self.LOG_FILE = f"{self.CACHE_DIR}/{self.MODEL_NAME}/training.log"
+        self.EMBED_CACHE_DIR = f"{self.CACHE_DIR}/{self.MODEL_NAME}/round_{self.MODEL_ROUND}/embeddings"
         self.DATA_CACHE_DIR = f"{self.CACHE_DIR}/dataset"
 
         # TensorBoard
-        self.writer = SummaryWriter(log_dir=f"{self.CACHE_DIR}/round_{self.MODEL_ROUND}/tensorboard_logs")
+        self.writer = SummaryWriter(log_dir=f"{self.CACHE_DIR}/{self.MODEL_NAME}/round_{self.MODEL_ROUND}/tensorboard_logs")
 
         # Training parameters
         self.BATCH_SIZE: int = 16
