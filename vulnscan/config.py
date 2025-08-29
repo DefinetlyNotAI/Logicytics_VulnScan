@@ -9,7 +9,7 @@ class TrainingConfig:
         self.MODEL_NAME = model_name
         self.CACHE_DIR = os.path.join(os.getcwd(), "cache")
 
-        existing_rounds = self.get_existing_rounds(self.CACHE_DIR)  # Auto-increment round based on existing folders
+        existing_rounds = self.__get_existing_rounds(self.CACHE_DIR)  # Auto-increment round based on existing folders
         self.MODEL_ROUND = max(existing_rounds) + 1 if existing_rounds else 1
 
         self.LOG_FILE = f"{self.CACHE_DIR}/{self.MODEL_NAME}/training.log"
@@ -59,7 +59,7 @@ class TrainingConfig:
         os.makedirs(self.DATA_CACHE_DIR, exist_ok=True)
 
     @staticmethod
-    def get_existing_rounds(cache_dir: str) -> list[int]:
+    def __get_existing_rounds(cache_dir: str) -> list[int]:
         """
         Returns a list of round numbers based on existing folders in the cache directory.
         """

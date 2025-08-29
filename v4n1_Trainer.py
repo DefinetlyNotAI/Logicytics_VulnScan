@@ -124,7 +124,7 @@ if __name__ == "__main__":
 
     # ----------------- RUN ------------------
     available_dataset = [10, 100, 1000, 5000, 10000, 17500, 25000]
-    for dataset in available_dataset:
+    for loop_idx, dataset in enumerate(available_dataset, start=1):
         if dataset <= 1000:
             name = "SenseNano"
         elif 1000 < dataset <= 5000:
@@ -133,8 +133,7 @@ if __name__ == "__main__":
             name = "Sense"
         else:
             name = "SenseMacro"
-        existing_rounds = cfg.get_existing_rounds(cfg.CACHE_DIR)  # Auto-increment round based on existing folders
-        model_round = max(existing_rounds) + 1 if existing_rounds else 1
+        model_round = loop_idx
         cfg.update({
             # Model / caching / logging
             "MODEL_NAME": f"Model_{name}.4n1",  # Name of the model for identification and caching
