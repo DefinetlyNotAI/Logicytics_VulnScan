@@ -66,6 +66,7 @@ def main():
 
 
 if __name__ == "__main__":
+    # noinspection DuplicatedCode
     cfg = TrainingConfig()
     cfg.update({
         # Model / caching / logging

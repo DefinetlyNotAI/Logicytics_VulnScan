@@ -4,6 +4,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from vulnscan import DataGen, TrainingConfig, log
 
 # ---------------- CONFIG ----------------
+# noinspection DuplicatedCode
 cfg = TrainingConfig()
 cfg.update({
     "MODEL_NAME": "Model_Sense.4n1",
@@ -39,26 +40,35 @@ if gpt_tokenizer.pad_token is None:
     gpt_tokenizer.pad_token = gpt_tokenizer.eos_token
 
 # ---------------- DATASET GENERATION ----------------
-dataset_ranges = [10, 100, 1000, 5000, 10000, 25000, 50000]
+dataset_ranges = [10, 100, 1000, 5000, 10000, 17500, 25000]
 
-# Keep track of the largest existing dataset to build upon
-largest_texts, largest_labels = [], []
-
-# Preload the largest dataset found (if any) to reuse for next generation
 for dr in dataset_ranges:
     dataset_path = f"{cfg.DATA_CACHE_DIR}/dataset_{dr}.pt"
 
+    # Skip if already exists
     if os.path.exists(dataset_path):
         data = torch.load(dataset_path, map_location="cpu")
         log(f"Found existing dataset {dataset_path} with {len(data['texts'])} samples. Skipping generation.", cfg=cfg)
-        largest_texts, largest_labels = data["texts"], data["labels"]
-        continue  # skip generating this one
+        continue
 
-    # Determine how many new samples we need
-    remaining = dr - len(largest_texts)
+    # --- Find largest smaller dataset ---
+    base_texts, base_labels = [], []
+    smaller_existing = [r for r in dataset_ranges if r < dr]
+    smaller_existing.sort(reverse=True)
+
+    for sr in smaller_existing:
+        candidate_path = f"{cfg.DATA_CACHE_DIR}/dataset_{sr}.pt"
+        if os.path.exists(candidate_path):
+            data = torch.load(candidate_path, map_location="cpu")
+            base_texts, base_labels = data["texts"], data["labels"]
+            log(f"Using {candidate_path} as base with {len(base_texts)} samples.", cfg=cfg)
+            break
+
+    # How many new we need
+    remaining = dr - len(base_texts)
     if remaining <= 0:
-        log(f"Already have enough samples for {dr}, skipping generation.", cfg=cfg)
-        torch.save({"texts": largest_texts[:dr], "labels": largest_labels[:dr]}, dataset_path)
+        log(f"Already have enough samples for {dr}, just saving subset.", cfg=cfg)
+        torch.save({"texts": base_texts[:dr], "labels": base_labels[:dr]}, dataset_path)
         continue
 
     cfg.update({"DATASET_SIZE": remaining})
@@ -68,15 +78,14 @@ for dr in dataset_ranges:
     try:
         new_texts, new_labels = generate.dataset(gpt_tokenizer=gpt_tokenizer, gpt_model=gpt_model)
     except KeyboardInterrupt:
-        # Save partial data if interrupted
-        largest_texts.extend(new_texts)
-        largest_labels.extend(new_labels)
-        torch.save({"texts": largest_texts, "labels": largest_labels}, dataset_path)
-        log(f"Dataset generation interrupted. Saved {len(largest_texts)} samples so far to {dataset_path}", cfg=cfg)
+        base_texts.extend(new_texts)
+        base_labels.extend(new_labels)
+        torch.save({"texts": base_texts, "labels": base_labels}, dataset_path)
+        log(f"Interrupted. Saved {len(base_texts)} samples so far to {dataset_path}", cfg=cfg)
         raise
 
-    # Append new samples and save
-    largest_texts.extend(new_texts)
-    largest_labels.extend(new_labels)
-    torch.save({"texts": largest_texts, "labels": largest_labels}, dataset_path)
-    log(f"Saved complete dataset with {len(largest_texts)} samples to {dataset_path}", cfg=cfg)
+    # Save full dataset
+    base_texts.extend(new_texts)
+    base_labels.extend(new_labels)
+    torch.save({"texts": base_texts, "labels": base_labels}, dataset_path)
+    log(f"Saved dataset with {len(base_texts)} samples to {dataset_path}", cfg=cfg)
