@@ -12,13 +12,13 @@ from vulnscan import log, Train, plot_training, SimpleNN, EmbeddingDataset, Trai
 # ---------------- INIT ----------------
 def init(config: TrainingConfig) -> dict:
     """Initialize static, config-free resources (only once)."""
-    log("Loading GPT-Neo tokenizer/model (static init)...", cfg=config)
+    log("Loading GPT-Neo tokenizer/model (static init)...", cfg=config, only_console=True)
     gpt_tokenizer = AutoTokenizer.from_pretrained("EleutherAI/gpt-neo-1.3B")
     gpt_model = AutoModelForCausalLM.from_pretrained("EleutherAI/gpt-neo-1.3B")
     if gpt_tokenizer.pad_token is None:
         gpt_tokenizer.pad_token = gpt_tokenizer.eos_token
 
-    log("Loading MiniLM for embeddings (static init)...", cfg=config)
+    log("Loading MiniLM for embeddings (static init)...", cfg=config, only_console=True)
     embed_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
     return {
