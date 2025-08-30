@@ -109,7 +109,7 @@ class DataGen:
                 batch_labels.append(torch.tensor(batch_lbls, dtype=torch.float32).unsqueeze(1))
 
                 # Offload if memory usage too high
-                if psutil.virtual_memory().percent / 100 > self.cfg.RAM_THRESHOLD:
+                if psutil.virtual_memory().percent > self.cfg.RAM_THRESHOLD:
                     self.offload_embeddings(
                         batch_embeddings=torch.cat(tensors=batch_embeddings, dim=0),
                         batch_labels=torch.cat(batch_labels, dim=0),
