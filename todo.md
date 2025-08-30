@@ -1,6 +1,8 @@
 For future version 4n2
 
 ```
+[2] Pred=0.438 → Credit Card Number
+[4] Pred=0.001 → Email Address
 [6] Pred=0.000 → Private SSH key
 [18] Pred=0.000 → Private RSA key
 [30] Pred=0.003 → Credit card expiration
