@@ -11,6 +11,7 @@ from sentence_transformers import SentenceTransformer
 from sklearn.manifold import TSNE
 from torch.utils.data import DataLoader, Dataset
 from torchviz import make_dot
+from tqdm import tqdm
 
 from data import test_texts, test_labels
 
@@ -205,35 +206,69 @@ def visualize_feature_importance(input_dim_, filename="Feature_Importance.svg"):
     plt.close()
 
 
-def plot_loss_landscape_3d(model_, dataloader_, criterion_, grid_size=30, epsilon=0.01,
-                           filename="Loss_Landscape_3D.html"):
+def plot_loss_landscape_3d(model_, dataloader_, criterion_, grid_size=None, epsilon=0.01,
+                           filename="Loss_Landscape_3D.html", device="cpu"):
     model_.eval()
-    param = next(model_.parameters())
-    param_flat = param.view(-1)
-    u = epsilon * torch.randn_like(param_flat).view(param.shape)
-    v = epsilon * torch.randn_like(param_flat).view(param.shape)
+    model_.to(device)
+
+    # Flatten all parameters into a single vector
+    params = torch.cat([p.view(-1) for p in model_.parameters()])
+
+    # Create random directions u, v in parameter space
+    u = epsilon * torch.randn_like(params)
+    v = epsilon * torch.randn_like(params)
     u /= torch.norm(u)
     v /= torch.norm(v)
+
+    if grid_size is None:
+        param_count = sum(p.numel() for p in model_.parameters())
+        grid_size = max(10, min(50, param_count // 10))
     x = np.linspace(-1, 1, grid_size)
     y = np.linspace(-1, 1, grid_size)
     loss_values = np.zeros((grid_size, grid_size))
 
-    for i, dx in enumerate(x):
-        for j, dy in enumerate(y):
-            param.data += dx * u.to(DEVICE) + dy * v.to(DEVICE)
-            total_loss = 0
-            for X, yb in dataloader_:
-                X, yb = X.to(DEVICE), yb.to(DEVICE)
-                yb = yb.float().view(-1, 1)  # reshape to match output
-                out = model_(X)
-                total_loss += criterion_(out, yb).item()
-            loss_values[i, j] = total_loss
-            param.data -= dx * u.to(DEVICE) + dy * v.to(DEVICE)
+    # Store original parameters
+    orig_params = params.clone()
 
+    with torch.no_grad():
+        for i, dx in enumerate(tqdm(x, desc="dx")):
+            for j, dy in enumerate(y):
+                # Perturbed parameter vector
+                new_params = orig_params + dx * u + dy * v
+
+                # Load new parameters into the model temporarily
+                idx = 0
+                for p in model_.parameters():
+                    numel = p.numel()
+                    p.copy_(new_params[idx:idx + numel].view_as(p))
+                    idx += numel
+
+                # Compute loss
+                total_loss = 0
+                for X, yb in dataloader_:
+                    X, yb = X.to(device), yb.to(device)
+                    yb = yb.float().view(-1, 1)
+                    out = model_(X)
+                    total_loss += criterion_(out, yb).item()
+                loss_values[i, j] = total_loss
+
+        # Restore original parameters
+        idx = 0
+        for p in model_.parameters():
+            numel = p.numel()
+            p.copy_(orig_params[idx:idx + numel].view_as(p))
+            idx += numel
+
+    # Plot
     X_grid, Y_grid = np.meshgrid(x, y)
     fig = go.Figure(data=[go.Surface(z=loss_values, x=X_grid, y=Y_grid, colorscale="Viridis")])
     fig.update_layout(title="Loss Landscape", scene=dict(xaxis_title="u", yaxis_title="v", zaxis_title="Loss"))
-    fig.write_html(os.path.join(OUTPUT_DIR, filename))
+
+    dir_name = os.path.dirname(filename)
+    if dir_name:
+        os.makedirs(dir_name, exist_ok=True)
+    fig.write_html(filename)
+    print(f"3D loss landscape saved to {filename}")
 
 
 def save_model_state_dict(model_, filename="Model_State_Dict.txt"):
@@ -311,6 +346,13 @@ save_graph(model)
 print("Saving model summary...")
 save_model_summary(model)
 print("Running plot_loss_landscape_3d...")
-model_cpu = model.to("cpu")
-plot_loss_landscape_3d(model_cpu, dataloader, criterion)
+DEVICE = "cpu"  # or "cuda" if you want GPU
+model_cpu = model.to(DEVICE)
+plot_loss_landscape_3d(
+    model_=model_cpu,
+    dataloader_=dataloader,
+    criterion_=criterion,
+    filename="Loss_Landscape_3D.html",
+    device=DEVICE
+)
 print("All visualizations completed. Files saved in 'data/' directory.")
