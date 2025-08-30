@@ -14,7 +14,7 @@ This document outlines the system's naming conventions, lifecycle, and model con
 > [!IMPORTANT]
 > Old documentation is available in the `Archived Models` directory of this [repository](https://github.com/DefinetlyNotAI/VulnScan_Data)
 >
-> This documentation is covers test data, metrics and niche features.
+> This documentation covers test data, metrics and niche features.
 
 ---
 
@@ -87,7 +87,10 @@ This document outlines the system's naming conventions, lifecycle, and model con
 
 ---
 
-### Version 3 (Current)
+### Version 3 (Superseded)
+- **Superseded by Version 4**
+- Retained for reference and backward compatibility.
+
 1. **Read Config**: Load model and training parameters.
 2. **Load Data**: Collect and preprocess sensitive data.
 3. **Split Data**: Separate into training and validation sets.
@@ -100,6 +103,36 @@ This document outlines the system's naming conventions, lifecycle, and model con
 
 ---
 
+### Version 4 (Current)
+- **Current Release**: Major improvements in scalability, modularity, and embedding-based training.
+- **Key Features**:
+    - **Dynamic Dataset Generation**: Uses GPT-Neo for synthetic sensitive data generation, scaling from small to large datasets.
+    - **Embedding-Based Training**: Employs MiniLM sentence embeddings for all text samples, improving feature representation.
+    - **Multi-Round Training**: Supports multiple training rounds per dataset size for robust model evaluation.
+    - **Automated Caching**: Datasets and embeddings are cached for reuse, reducing redundant computation.
+    - **Configurable Model Naming**: Model names reflect dataset size, type, version, and training round.
+    - **Progress Tracking**: Training history and metrics are saved per round for analysis.
+    - **Extensible Framework**: Easily integrates new models, datasets, and training strategies.
+
+#### Version 4 Workflow
+1. **Initialize Resources**: Load GPT-Neo and MiniLM models for generation and embedding.
+2. **Dataset Generation**: Create or load datasets of varying sizes, using cached data when available.
+3. **Embedding Generation**: Compute sentence embeddings for train, validation, and test splits.
+4. **Split Data**: Partition data into train, validation, and test sets based on configurable ratios.
+5. **Model Training**: Train a neural network using embeddings, with support for early stopping and learning rate scheduling.
+6. **Multi-Round Evaluation**: Repeat training for each dataset size and round, saving metrics and model states.
+7. **Progress Logging**: Save training history, plots, and logs for each round and model.
+8. **Extensibility**: Easily add new dataset sizes, model types, or embedding strategies.
+
+#### Example Model Name
+`Model_Sense.4n1`:
+- Dataset: `Sense` (50k to 100k files).
+- Version: 4 (current major version).
+- Model: NeuralNetwork (`n`).
+- Training Round: 1.
+
+---
+
 ## Preferred Model
 **NeuralNetwork (`n`)**
 - Proven to be the most effective for detecting sensitive data in the project.
@@ -108,7 +141,7 @@ This document outlines the system's naming conventions, lifecycle, and model con
 
 ## Notes
 - **Naming System**: Helps track model versions, datasets, and training iterations for transparency and reproducibility.
-- **Current Focus**: Transition to `v3` for improved accuracy, flexibility, and robust performance.
+- **Current Focus**: Version 4 for improved scalability, embedding-based training, and robust performance.
 
 ---
 
