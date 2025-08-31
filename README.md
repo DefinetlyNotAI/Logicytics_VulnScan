@@ -9,7 +9,7 @@ This document outlines the system's naming conventions, lifecycle, and model con
 > [!NOTE]
 > Ported in update 3.5.0 of Logicytics - Latest update from there was 3.4.2
 >
-> You can find the main repo and generated files [here](https://github.com/DefinetlyNotAI/Logicytics/tree/main/CODE/vulnScan)
+> You can find the main repo and generated files [here](https://github.com/DefinetlyNotAI/Logicytics/tree/main/CODE/vulnscan)
 
 > [!IMPORTANT]
 > Old documentation is available in the `Archived Models` directory of this [repository](https://github.com/DefinetlyNotAI/VulnScan_Data)
@@ -174,3 +174,4 @@ The repository contains the following directories:
     - `Visualize_tSNE.png`: A PNG file that contains the visualization of the model t-SNE with the default training test embeds.
     - `Visualize_tSNE_custom.png`: A PNG file that contains the visualization of the model t-SNE with real world training examples (only 100).
     - `Weight_Distribution.png`: A PNG file that contains the weight distribution of the model.
+
